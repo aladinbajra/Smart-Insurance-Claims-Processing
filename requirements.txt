@@ -1,0 +1,6 @@
+PyYAML
+pytest
+pydantic>=2
+
+
+pypdf
