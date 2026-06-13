@@ -1,0 +1,130 @@
+# =============================================================================
+# SICPS Policy Pack  --  v1.0
+# Runtime reconfiguration: edit this file, no code changes needed (REQ-034-037)
+# =============================================================================
+
+version: "1.0"
+region: "US_DEFAULT"
+effective_date: "2026-01-01"
+
+# -----------------------------------------------------------------------------
+# APPROVAL THRESHOLDS  (REQ-034)
+# Agent H reads these to determine routing_decision
+# -----------------------------------------------------------------------------
+approval:
+  auto_settle_max_amount:       5000.00   # net settlement below this → auto_settle
+  homeowners_auto_approve_limit: 8000.00  # homeowners claims below this → auto_settle
+  senior_review_threshold:      50000.00  # gross above this → senior_review
+  total_loss_ratio_threshold:    0.75     # repair/market_value above this → total_loss
+  catastrophe_auto_approve_limit: 10000.00  # CAT surge mode fast-track limit
+
+# -----------------------------------------------------------------------------
+# TOLERANCE PERCENTAGES  (REQ-036)
+# Agent D and E read these for variance calculations
+# -----------------------------------------------------------------------------
+tolerances:
+  repair_cost_variance_pct:       0.25   # ±25% from expected repair cost is acceptable
+  medical_cost_variance_pct:      0.30   # ±30% from expected medical billing
+  labor_rate_variance_pct:        0.15   # ±15% from regional labor rate average
+  replacement_value_variance_pct: 0.20   # ±20% from market value data
+
+# -----------------------------------------------------------------------------
+# FRAUD DETECTION THRESHOLDS  (REQ-023, REQ-025)
+# Agent E reads these for scoring and SIU referral decisions
+# -----------------------------------------------------------------------------
+fraud:
+  high_risk_threshold:          0.75   # score >= this → siu_referral
+  medium_risk_threshold:        0.40   # score >= this → adjuster_review
+  low_risk_threshold:           0.20   # score below this → no action
+  prior_claims_window_months:   18     # lookback window for claim frequency
+  prior_claims_siu_trigger:     3      # claims >= this in window → SIU flag
+  provider_collusion_min_matches: 2    # same provider in N claims → collusion flag
+  staged_accident_vehicle_threshold: 3 # N vehicles in same incident → staged flag
+  inflated_repair_multiplier:   1.50   # estimate > 1.5x expected → inflated flag
+
+  # Known fraud ring entity identifiers (REQ-025)
+  known_fraud_rings:
+    - ring_id: "RING-CHI-001"
+      description: "Chicago South Side provider collusion ring — overbilling pattern"
+      provider_ids: ["PROV-999", "PROV-887", "PROV-654"]
+      tax_ids: ["88-1234567", "88-9876543", "88-5551212"]
+    - ring_id: "RING-IL-002"
+      description: "Northern Illinois staged accident network"
+      provider_ids: ["PROV-771", "PROV-332"]
+      tax_ids: ["77-4441111", "77-2223333"]
+
+  # Blacklisted providers/vendors (REQ-025)
+  blacklisted_providers:
+    - id: "PROV-999"
+      name: "QuickPay Auto Repair"
+      tax_id: "88-1234567"
+      reason: "Active participant in RING-CHI-001 — 14 prior SIU referrals"
+    - id: "PROV-887"
+      name: "FastCash Collision Center"
+      tax_id: "88-9876543"
+      reason: "RING-CHI-001 participant — systematic overbilling pattern"
+    - id: "PROV-654"
+      name: "EZ Insurance Repair"
+      tax_id: "88-5551212"
+      reason: "RING-CHI-001 participant — provider collusion confirmed"
+    - id: "PROV-771"
+      name: "Quick Settlement Garage"
+      tax_id: "77-4441111"
+      reason: "RING-IL-002 participant — staged accident facilitator"
+
+# -----------------------------------------------------------------------------
+# COVERAGE RULES  (REQ-017)
+# Agent C reads these for coverage validation
+# -----------------------------------------------------------------------------
+coverage:
+  late_notice_days_auto:       30   # auto claims must be reported within N days
+  late_notice_days_homeowners: 60   # homeowners within N days
+  late_notice_days_medical:    90   # medical within N days
+  waiting_period_enforcement:  true
+  pre_existing_lookback_days:  0    # any damage before inception date is excluded
+
+# -----------------------------------------------------------------------------
+# EXTRACTION QUALITY  (REQ-014, REQ-042)
+# Agent B reads these for confidence-based routing
+# -----------------------------------------------------------------------------
+extraction:
+  min_confidence_auto_process:    0.70   # fields above this proceed automatically
+  low_confidence_flag_threshold:  0.60   # fields below this get requires_review=true
+  ocr_field_completeness_min:     0.80   # at least 80% of required fields must extract
+
+# -----------------------------------------------------------------------------
+# CAT EVENT CONFIGURATION  (REQ-041)
+# Agent A reads these to detect CAT event claims
+# -----------------------------------------------------------------------------
+cat_event:
+  surge_mode_enabled: true
+  surge_auto_approve_limit: 10000.00
+  active_events:
+    - event_id: "CAT-2026-IL-05"
+      description: "Hailstorm — Naperville/Aurora corridor — 2026-05-28"
+      event_type: "hailstorm"
+      affected_states: ["IL"]
+      affected_zip_codes: ["60540", "60542", "60505", "60506", "60564", "60565"]
+      active_from: "2026-05-28"
+      active_until: "2026-07-28"
+
+# -----------------------------------------------------------------------------
+# PRIVACY & COMPLIANCE  (REQ-003)
+# Pipeline runner reads these for audit log redaction
+# -----------------------------------------------------------------------------
+privacy:
+  mask_ssn: true
+  mask_dob: true
+  audit_log_pii_redaction: true
+  data_retention_days: 2555
+
+compliance:
+  jurisdiction: "US"
+  regulatory_framework: "NAIC"
+  state_overrides:
+    IL:
+      late_notice_days: 30
+    IN:
+      late_notice_days: 45
+    OH:
+      late_notice_days: 30
