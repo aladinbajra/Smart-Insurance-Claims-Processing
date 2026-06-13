@@ -1,0 +1,213 @@
+schema_version: '2.1'
+claim_id: CLM-2026-006
+scenario: scenario_06_cat_event
+claim_type: auto
+priority: cat_surge
+expected_outcome: CAT surge mode -- fast-track settlement
+expected_routing: auto_settle
+claimant:
+  claimant_id: CLT-006
+  full_name: Rebecca Hill
+  policy_number: POL-006-2022
+  prior_claims_18mo: 0
+  prior_claim_ids: &id001 []
+  fraud_history: false
+  new_claimant: false
+policy:
+  policy_number: POL-006-2022
+  policy_type: Auto - Comprehensive + CAT
+  effective_date: '2022-11-01'
+  expiration_date: '2026-11-01'
+  is_active: true
+  policy_expired: false
+  deductible: 1000.0
+  coverage_limit: 100000.0
+  late_notice_days: 30
+  exclusions:
+  - Pre-existing damage
+  - Intentional acts
+  state: IL
+incident:
+  date: '2026-05-28'
+  time: '17:30'
+  report_date: '2026-05-29'
+  days_to_report: 1
+  late_notice_violation: false
+  days_over_limit: 0
+  location: Naperville, IL
+  zip_code: '60540'
+  type: Natural Disaster - Hail
+  severity: Major Damage
+  cat_event: true
+  cat_event_id: CAT-2026-IL-05
+  police_report_filed: true
+  police_report_number: NAPER-2026-05-28-0012
+  witness_count: 5
+vehicle:
+  make: Hyundai
+  model: Tucson
+  year: 2022
+  vin: KM8J3CA42NU456789
+  market_value: 28000.0
+financials:
+  repair_estimate: 10550.0
+  medical_total: 0.0
+  injury_claim: 0.0
+  gross_amount: 10550.0
+  deductible: 1000.0
+  net_settlement: 9550.0
+  market_value: 28000.0
+  total_loss_ratio: 0.3768
+  total_loss_flag: false
+invoice_matching:
+  invoice_number: INV-006-2026
+  po_reference: PO-006-2026
+  grn_reference: null
+  provider_id: PROV-106
+  invoice_amount: 10550.0
+  expected_amount: 10550.0
+  variance_pct: 0.05
+  match_status: match
+provider:
+  provider_id: PROV-106
+  provider_name: Storm Recovery Center
+  tax_id: 36-7776006
+  address: 2300 Ogden Ave, Naperville IL 60540
+  is_blacklisted: false
+  fraud_ring_id: null
+documents:
+- type: fnol
+  file: fnol.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: policy
+  file: policy.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: repair_estimate
+  file: repair_estimate.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+  invoice_number: INV-006-2026
+  ocr_flags: []
+- type: police_report
+  file: police_report.pdf
+  processable: true
+  expected_confidence: high
+  report_number: NAPER-2026-05-28-0012
+- type: vendor_master
+  file: vendor_master.pdf
+  processable: true
+  expected_confidence: high
+  provider_id: PROV-106
+- type: photo
+  file: photos/damage_front.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+- type: photo
+  file: photos/damage_rear.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+flags:
+  cat_event: true
+  fraud_history: false
+  new_claimant: false
+  late_notice: false
+  coverage_denied: false
+  siu_referral: false
+  manual_review: false
+  total_loss: false
+  missing_documents: false
+  duplicate_claim: false
+  policy_expired: false
+  low_ocr_confidence: false
+fraud_assessment:
+  fraud_score: 0.12
+  risk_level: low
+  requires_siu: false
+  expected_indicators: []
+  provider_blacklisted: false
+  provider_ring_match: false
+  provider_ring_id: null
+  billing_variance_pct: 0.05
+  prior_claims_trigger: false
+  prior_claims_18mo: 0
+  prior_claim_ids: *id001
+audit:
+  created_at: '2026-06-12T17:44:40Z'
+  updated_at: '2026-06-12T17:44:40Z'
+  processed_by: sicps-dataset-generator-v2.1
+  data_source: synthetic-fpdf2
+  schema_version: '2.1'
+  generator_script: generate_sicps_dataset.py
+  input_hash: sha256:synthetic-placeholder-CLM-2026-006
+  idempotency_key: CLM-2026-006
+ocr:
+  confidence: 0.93
+  extraction_errors: []
+  low_confidence_fields: []
+  requires_manual_review: false
+  document_quality: high
+  simulated_defects: []
+  bounding_box_available: true
+  min_field_confidence: 0.8700000000000001
+expected_agent_signals:
+  agent_fnol_intake:
+    priority: cat_surge
+    risk_flags:
+    - cat_event
+  agent_document_extraction:
+    min_confidence: 0.91
+    requires_manual_review: false
+  agent_coverage_validation:
+    coverage_active: true
+    denial_reason: null
+    cat_mode: true
+  agent_damage_assessment:
+    gross_amount: 10550.0
+    total_loss: false
+  agent_fraud_detection:
+    fraud_score_max: 0.15
+    siu_referral: false
+  agent_exception_triage:
+    routing: auto_settle
+    net_settlement: 9550.0
+cross_document_validations:
+- check: policy_number_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claimant_name_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_after_inception
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_before_expiry
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claim_id_on_all_documents
+  documents:
+  - fnol
+  - estimate
+  expected: true
+- check: provider_id_on_vendor_master
+  documents:
+  - estimate
+  - vendor_master
+  expected: true
+adjuster_notes: CAT Event confirmed. ZIP 60540 matches active event CAT-2026-IL-05.
+  Surge processing mode enabled. Estimate ($10,550) borderline under $10,000 surge
+  limit -- flag for fast-track adjuster review.

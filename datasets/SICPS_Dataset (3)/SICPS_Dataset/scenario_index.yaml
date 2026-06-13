@@ -1,0 +1,114 @@
+dataset_version: '2.1'
+generated_at: '2026-06-12T17:44:40Z'
+generator: generate_sicps_dataset.py
+total_scenarios: 12
+req_046_scenarios: 9
+bonus_scenarios: 3
+scenarios:
+- id: '01'
+  folder: scenario_01_clean_auto
+  routing: auto_settle
+  fraud_score: 0.08
+  ocr_confidence: 0.96
+  priority: standard
+- id: '02'
+  folder: scenario_02_total_loss
+  routing: adjuster_review
+  fraud_score: 0.18
+  ocr_confidence: 0.94
+  priority: high
+- id: '03'
+  folder: scenario_03_siu_referral
+  routing: siu_referral
+  fraud_score: 0.82
+  ocr_confidence: 0.91
+  priority: high
+- id: '04'
+  folder: scenario_04_coverage_denial
+  routing: denial
+  fraud_score: 0.3
+  ocr_confidence: 0.92
+  priority: standard
+- id: '05'
+  folder: scenario_05_late_notice
+  routing: adjuster_review
+  fraud_score: 0.18
+  ocr_confidence: 0.93
+  priority: standard
+- id: '06'
+  folder: scenario_06_cat_event
+  routing: auto_settle
+  fraud_score: 0.12
+  ocr_confidence: 0.93
+  priority: cat_surge
+- id: '07'
+  folder: scenario_07_fraud_ring
+  routing: siu_referral
+  fraud_score: 0.92
+  ocr_confidence: 0.91
+  priority: urgent
+- id: 08
+  folder: scenario_08_low_ocr
+  routing: adjuster_review
+  fraud_score: 0.22
+  ocr_confidence: 0.41
+  priority: standard
+- id: 09
+  folder: scenario_09_homeowners
+  routing: auto_settle
+  fraud_score: 0.06
+  ocr_confidence: 0.95
+  priority: standard
+- id: '10'
+  folder: scenario_10_expired_policy
+  routing: denial
+  fraud_score: 0.15
+  ocr_confidence: 0.93
+  priority: standard
+- id: '11'
+  folder: scenario_11_missing_documents
+  routing: adjuster_review
+  fraud_score: 0.2
+  ocr_confidence: 0.91
+  priority: standard
+- id: '12'
+  folder: scenario_12_duplicate_claim
+  routing: adjuster_review
+  fraud_score: 0.71
+  ocr_confidence: 0.9
+  priority: high
+routing_distribution:
+  auto_settle: 3
+  adjuster_review: 5
+  siu_referral: 2
+  denial: 2
+fraud_ring_scenarios:
+- '07'
+- '12'
+vin_cross_reference:
+  1GNSCAKC0KR234567:
+  - CLM-2026-007
+  - CLM-2026-012
+provider_cross_reference:
+  PROV-999:
+  - CLM-2026-007
+  - CLM-2026-012
+cat_event_scenarios:
+- '06'
+document_types_in_dataset:
+- fnol
+- policy
+- repair_estimate
+- police_report
+- vendor_master
+new_in_v21:
+- fraud_assessment section in all manifests (fraud_score, risk_level, requires_siu)
+- audit section in all manifests (created_at, updated_at, processed_by)
+- ocr section in all manifests (confidence, extraction_errors, simulated_defects)
+- police_report.pdf generated for all scenarios with police_report=YES
+- vendor_master.pdf generated for all scenarios
+- 'invoice_matching section (REQ-043: invoice/PO/GRN support)'
+- scenario_index.yaml at dataset root
+- incident_time added to all scenarios
+- expected_fraud_score + expected_ocr_confidence per scenario
+- cross-scenario VIN and provider linking

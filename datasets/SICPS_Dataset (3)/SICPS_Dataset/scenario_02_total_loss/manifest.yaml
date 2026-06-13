@@ -1,0 +1,219 @@
+schema_version: '2.1'
+claim_id: CLM-2026-002
+scenario: scenario_02_total_loss
+claim_type: auto
+priority: high
+expected_outcome: Total loss determination -- market value payout
+expected_routing: adjuster_review
+claimant:
+  claimant_id: CLT-002
+  full_name: Maria Santos
+  policy_number: POL-002-2022
+  prior_claims_18mo: 1
+  prior_claim_ids: &id001
+  - CLM-2025-204
+  fraud_history: false
+  new_claimant: false
+policy:
+  policy_number: POL-002-2022
+  policy_type: Auto - Comprehensive
+  effective_date: '2022-06-01'
+  expiration_date: '2026-06-01'
+  is_active: true
+  policy_expired: false
+  deductible: 2000.0
+  coverage_limit: 100000.0
+  late_notice_days: 30
+  exclusions:
+  - Pre-existing damage
+  - Wear and tear
+  state: IN
+incident:
+  date: '2026-05-14'
+  time: 09:47
+  report_date: '2026-05-15'
+  days_to_report: 1
+  late_notice_violation: false
+  days_over_limit: 0
+  location: US-41 South, Indianapolis IN
+  zip_code: '46201'
+  type: Multi-vehicle Collision
+  severity: Total Loss
+  cat_event: false
+  cat_event_id: null
+  police_report_filed: true
+  police_report_number: INSP-2026-05-14-8812
+  witness_count: 3
+vehicle:
+  make: Ford
+  model: F-150
+  year: 2020
+  vin: 1FTEW1EP5LFA12345
+  market_value: 32000.0
+financials:
+  repair_estimate: 34600.0
+  medical_total: 4200.0
+  injury_claim: 4200.0
+  gross_amount: 43000.0
+  deductible: 2000.0
+  net_settlement: 41000.0
+  market_value: 32000.0
+  total_loss_ratio: 1.0813
+  total_loss_flag: true
+invoice_matching:
+  invoice_number: INV-002-2026
+  po_reference: PO-002-2026
+  grn_reference: null
+  provider_id: PROV-102
+  invoice_amount: 43000.0
+  expected_amount: 43000.0
+  variance_pct: 0.08
+  match_status: match
+provider:
+  provider_id: PROV-102
+  provider_name: Metro Body Shop
+  tax_id: 35-9871002
+  address: 1180 N. Keystone Ave, Indianapolis IN 46201
+  is_blacklisted: false
+  fraud_ring_id: null
+documents:
+- type: fnol
+  file: fnol.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: policy
+  file: policy.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: repair_estimate
+  file: repair_estimate.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+  invoice_number: INV-002-2026
+  ocr_flags: []
+- type: police_report
+  file: police_report.pdf
+  processable: true
+  expected_confidence: high
+  report_number: INSP-2026-05-14-8812
+- type: vendor_master
+  file: vendor_master.pdf
+  processable: true
+  expected_confidence: high
+  provider_id: PROV-102
+- type: photo
+  file: photos/damage_front.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+- type: photo
+  file: photos/damage_rear.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+- type: medical_report
+  file: medical_records.pdf
+  processable: false
+  status: reference_only
+  note: Medical records referenced but not generated in synthetic dataset
+  medical_total: 4200.0
+flags:
+  cat_event: false
+  fraud_history: false
+  new_claimant: false
+  late_notice: false
+  coverage_denied: false
+  siu_referral: false
+  manual_review: false
+  total_loss: true
+  missing_documents: false
+  duplicate_claim: false
+  policy_expired: false
+  low_ocr_confidence: false
+fraud_assessment:
+  fraud_score: 0.18
+  risk_level: low
+  requires_siu: false
+  expected_indicators: []
+  provider_blacklisted: false
+  provider_ring_match: false
+  provider_ring_id: null
+  billing_variance_pct: 0.08
+  prior_claims_trigger: false
+  prior_claims_18mo: 1
+  prior_claim_ids: *id001
+audit:
+  created_at: '2026-06-12T17:44:40Z'
+  updated_at: '2026-06-12T17:44:40Z'
+  processed_by: sicps-dataset-generator-v2.1
+  data_source: synthetic-fpdf2
+  schema_version: '2.1'
+  generator_script: generate_sicps_dataset.py
+  input_hash: sha256:synthetic-placeholder-CLM-2026-002
+  idempotency_key: CLM-2026-002
+ocr:
+  confidence: 0.94
+  extraction_errors: []
+  low_confidence_fields: []
+  requires_manual_review: false
+  document_quality: high
+  simulated_defects: []
+  bounding_box_available: true
+  min_field_confidence: 0.8799999999999999
+expected_agent_signals:
+  agent_fnol_intake:
+    priority: high
+    risk_flags:
+    - total_loss_suspected
+  agent_document_extraction:
+    min_confidence: 0.91
+    requires_manual_review: false
+  agent_coverage_validation:
+    coverage_active: true
+    denial_reason: null
+  agent_damage_assessment:
+    gross_amount: 33300.0
+    total_loss: true
+    total_loss_ratio: 0.909
+  agent_fraud_detection:
+    fraud_score_max: 0.25
+    siu_referral: false
+  agent_exception_triage:
+    routing: adjuster_review
+    net_settlement: 31300.0
+cross_document_validations:
+- check: policy_number_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claimant_name_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_after_inception
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_before_expiry
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claim_id_on_all_documents
+  documents:
+  - fnol
+  - estimate
+  expected: true
+- check: provider_id_on_vendor_master
+  documents:
+  - estimate
+  - vendor_master
+  expected: true
+adjuster_notes: TL ratio = 0.909. Exceeds 0.75 threshold. Initiate total loss valuation.
+  Medical claim $4,200 requires separate review.

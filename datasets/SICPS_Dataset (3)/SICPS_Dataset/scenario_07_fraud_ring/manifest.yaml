@@ -1,0 +1,226 @@
+schema_version: '2.1'
+claim_id: CLM-2026-007
+scenario: scenario_07_fraud_ring
+claim_type: auto
+priority: urgent
+expected_outcome: SIU referral -- known fraud ring provider
+expected_routing: siu_referral
+claimant:
+  claimant_id: CLT-007
+  full_name: Kevin Nash
+  policy_number: POL-007-2024
+  prior_claims_18mo: 2
+  prior_claim_ids: &id001
+  - CLM-2025-201
+  - CLM-2025-188
+  fraud_history: true
+  new_claimant: false
+policy:
+  policy_number: POL-007-2024
+  policy_type: Auto - Comprehensive
+  effective_date: '2024-04-01'
+  expiration_date: '2027-04-01'
+  is_active: true
+  policy_expired: false
+  deductible: 1000.0
+  coverage_limit: 100000.0
+  late_notice_days: 30
+  exclusions:
+  - Pre-existing damage
+  - Intentional acts
+  state: IL
+incident:
+  date: '2026-05-20'
+  time: '21:45'
+  report_date: '2026-05-21'
+  days_to_report: 1
+  late_notice_violation: false
+  days_over_limit: 0
+  location: South Side, Chicago IL
+  zip_code: '60620'
+  type: Multi-vehicle Collision
+  severity: Major Damage
+  cat_event: false
+  cat_event_id: null
+  police_report_filed: true
+  police_report_number: CPD-2026-05-20-9988
+  witness_count: 1
+vehicle:
+  make: Chevrolet
+  model: Tahoe
+  year: 2019
+  vin: 1GNSCAKC0KR234567
+  market_value: 38000.0
+financials:
+  repair_estimate: 26300.0
+  medical_total: 9800.0
+  injury_claim: 9800.0
+  gross_amount: 45900.0
+  deductible: 1000.0
+  net_settlement: 44900.0
+  market_value: 38000.0
+  total_loss_ratio: 0.6921
+  total_loss_flag: false
+invoice_matching:
+  invoice_number: INV-007-2026
+  po_reference: PO-007-2026
+  grn_reference: null
+  provider_id: PROV-999
+  invoice_amount: 45900.0
+  expected_amount: 45900.0
+  variance_pct: 1.87
+  match_status: mismatch
+provider:
+  provider_id: PROV-999
+  provider_name: QuickPay Auto Repair
+  tax_id: 88-1234567
+  address: 5510 S. Halsted St, Chicago IL 60621
+  is_blacklisted: true
+  fraud_ring_id: RING-CHI-001
+documents:
+- type: fnol
+  file: fnol.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: policy
+  file: policy.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: repair_estimate
+  file: repair_estimate.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+  invoice_number: INV-007-2026
+  ocr_flags: []
+- type: police_report
+  file: police_report.pdf
+  processable: true
+  expected_confidence: high
+  report_number: CPD-2026-05-20-9988
+- type: vendor_master
+  file: vendor_master.pdf
+  processable: true
+  expected_confidence: high
+  provider_id: PROV-999
+- type: photo
+  file: photos/damage_front.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+- type: photo
+  file: photos/damage_rear.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+- type: medical_report
+  file: medical_records.pdf
+  processable: false
+  status: reference_only
+  note: Medical records referenced but not generated in synthetic dataset
+  medical_total: 9800.0
+flags:
+  cat_event: false
+  fraud_history: true
+  new_claimant: false
+  late_notice: false
+  coverage_denied: false
+  siu_referral: true
+  manual_review: false
+  total_loss: false
+  missing_documents: false
+  duplicate_claim: false
+  policy_expired: false
+  low_ocr_confidence: false
+fraud_assessment:
+  fraud_score: 0.92
+  risk_level: critical
+  requires_siu: true
+  expected_indicators:
+  - provider_blacklist
+  - ring_fraud
+  - billing_variance
+  - provider_collusion
+  provider_blacklisted: true
+  provider_ring_match: true
+  provider_ring_id: RING-CHI-001
+  billing_variance_pct: 1.87
+  prior_claims_trigger: false
+  prior_claims_18mo: 2
+  prior_claim_ids: *id001
+audit:
+  created_at: '2026-06-12T17:44:40Z'
+  updated_at: '2026-06-12T17:44:40Z'
+  processed_by: sicps-dataset-generator-v2.1
+  data_source: synthetic-fpdf2
+  schema_version: '2.1'
+  generator_script: generate_sicps_dataset.py
+  input_hash: sha256:synthetic-placeholder-CLM-2026-007
+  idempotency_key: CLM-2026-007
+ocr:
+  confidence: 0.91
+  extraction_errors: []
+  low_confidence_fields: []
+  requires_manual_review: false
+  document_quality: high
+  simulated_defects: []
+  bounding_box_available: true
+  min_field_confidence: 0.8500000000000001
+expected_agent_signals:
+  agent_fnol_intake:
+    priority: urgent
+    risk_flags:
+    - fraud_history
+    - siu_flag
+  agent_document_extraction:
+    min_confidence: 0.9
+    requires_manual_review: false
+  agent_coverage_validation:
+    coverage_active: true
+    denial_reason: null
+  agent_damage_assessment:
+    gross_amount: 36100.0
+    total_loss: false
+  agent_fraud_detection:
+    fraud_score_min: 0.88
+    siu_referral: true
+    fraud_ring_match: true
+  agent_exception_triage:
+    routing: siu_referral
+    net_settlement: 0
+cross_document_validations:
+- check: policy_number_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claimant_name_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_after_inception
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_before_expiry
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claim_id_on_all_documents
+  documents:
+  - fnol
+  - estimate
+  expected: true
+- check: provider_id_on_vendor_master
+  documents:
+  - estimate
+  - vendor_master
+  expected: true
+adjuster_notes: 'FRAUD ALERT: PROV-999 is blacklisted. Tax ID 88-1234567 matches RING-CHI-001.
+  Three claimants all directed to same provider. Refer to SIU. Do not pay until investigation
+  complete.'

@@ -1,0 +1,192 @@
+schema_version: '2.1'
+claim_id: CLM-2026-009
+scenario: scenario_09_homeowners
+claim_type: homeowners
+priority: standard
+expected_outcome: Straight-through auto-approval -- homeowners
+expected_routing: auto_settle
+claimant:
+  claimant_id: CLT-009
+  full_name: Emily Thornton
+  policy_number: POL-009-2021
+  prior_claims_18mo: 0
+  prior_claim_ids: &id001 []
+  fraud_history: false
+  new_claimant: false
+policy:
+  policy_number: POL-009-2021
+  policy_type: Homeowners - HO-3
+  effective_date: '2021-08-01'
+  expiration_date: '2027-08-01'
+  is_active: true
+  policy_expired: false
+  deductible: 1000.0
+  coverage_limit: 300000.0
+  late_notice_days: 30
+  exclusions:
+  - Flood damage
+  - Earthquake
+  - Intentional acts
+  - Mold (pre-existing)
+  state: IL
+incident:
+  date: '2026-05-25'
+  time: 03:15
+  report_date: '2026-05-26'
+  days_to_report: 1
+  late_notice_violation: false
+  days_over_limit: 0
+  location: 412 Maple Ave, Evanston IL
+  zip_code: '60201'
+  type: Property Damage - Water / Burst Pipe
+  severity: Minor Damage
+  cat_event: false
+  cat_event_id: null
+  police_report_filed: false
+  police_report_number: null
+  witness_count: 1
+vehicle: {}
+financials:
+  repair_estimate: 3220.0
+  medical_total: 0.0
+  injury_claim: 0.0
+  gross_amount: 3220.0
+  deductible: 1000.0
+  net_settlement: 2220.0
+  market_value: 0.0
+  total_loss_ratio: 0.0
+  total_loss_flag: false
+invoice_matching:
+  invoice_number: INV-009-2026
+  po_reference: PO-009-2026
+  grn_reference: null
+  provider_id: PROV-109
+  invoice_amount: 3220.0
+  expected_amount: 3220.0
+  variance_pct: 0.03
+  match_status: match
+provider:
+  provider_id: PROV-109
+  provider_name: HomeRepair Pro LLC
+  tax_id: 36-4440009
+  address: 722 Dodge Ave, Evanston IL 60202
+  is_blacklisted: false
+  fraud_ring_id: null
+documents:
+- type: fnol
+  file: fnol.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: policy
+  file: policy.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: repair_estimate
+  file: repair_estimate.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+  invoice_number: INV-009-2026
+  ocr_flags: []
+- type: vendor_master
+  file: vendor_master.pdf
+  processable: true
+  expected_confidence: high
+  provider_id: PROV-109
+flags:
+  cat_event: false
+  fraud_history: false
+  new_claimant: false
+  late_notice: false
+  coverage_denied: false
+  siu_referral: false
+  manual_review: false
+  total_loss: false
+  missing_documents: false
+  duplicate_claim: false
+  policy_expired: false
+  low_ocr_confidence: false
+fraud_assessment:
+  fraud_score: 0.06
+  risk_level: low
+  requires_siu: false
+  expected_indicators: []
+  provider_blacklisted: false
+  provider_ring_match: false
+  provider_ring_id: null
+  billing_variance_pct: 0.03
+  prior_claims_trigger: false
+  prior_claims_18mo: 0
+  prior_claim_ids: *id001
+audit:
+  created_at: '2026-06-12T17:44:40Z'
+  updated_at: '2026-06-12T17:44:40Z'
+  processed_by: sicps-dataset-generator-v2.1
+  data_source: synthetic-fpdf2
+  schema_version: '2.1'
+  generator_script: generate_sicps_dataset.py
+  input_hash: sha256:synthetic-placeholder-CLM-2026-009
+  idempotency_key: CLM-2026-009
+ocr:
+  confidence: 0.95
+  extraction_errors: []
+  low_confidence_fields: []
+  requires_manual_review: false
+  document_quality: high
+  simulated_defects: []
+  bounding_box_available: true
+  min_field_confidence: 0.8899999999999999
+expected_agent_signals:
+  agent_fnol_intake:
+    priority: standard
+    risk_flags: []
+  agent_document_extraction:
+    min_confidence: 0.92
+    requires_manual_review: false
+  agent_coverage_validation:
+    coverage_active: true
+    denial_reason: null
+  agent_damage_assessment:
+    gross_amount: 3220.0
+    total_loss: false
+  agent_fraud_detection:
+    fraud_score_max: 0.1
+    siu_referral: false
+  agent_exception_triage:
+    routing: auto_settle
+    net_settlement: 2220.0
+cross_document_validations:
+- check: policy_number_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claimant_name_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_after_inception
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_before_expiry
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claim_id_on_all_documents
+  documents:
+  - fnol
+  - estimate
+  expected: true
+- check: provider_id_on_vendor_master
+  documents:
+  - estimate
+  - vendor_master
+  expected: true
+adjuster_notes: Clean homeowners claim. Amount ($3,220) is well below $8,000 homeowners
+  auto-approve threshold. Licensed contractor. No red flags.

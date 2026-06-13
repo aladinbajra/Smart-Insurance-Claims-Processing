@@ -1,0 +1,213 @@
+schema_version: '2.1'
+claim_id: CLM-2026-005
+scenario: scenario_05_late_notice
+claim_type: auto
+priority: standard
+expected_outcome: Late notice exception -- coverage at risk
+expected_routing: adjuster_review
+claimant:
+  claimant_id: CLT-005
+  full_name: Thomas Burke
+  policy_number: POL-005-2023
+  prior_claims_18mo: 0
+  prior_claim_ids: &id001 []
+  fraud_history: false
+  new_claimant: false
+policy:
+  policy_number: POL-005-2023
+  policy_type: Auto - Comprehensive
+  effective_date: '2023-09-01'
+  expiration_date: '2027-09-01'
+  is_active: true
+  policy_expired: false
+  deductible: 1000.0
+  coverage_limit: 100000.0
+  late_notice_days: 30
+  exclusions:
+  - Pre-existing damage
+  - Wear and tear
+  state: IL
+incident:
+  date: '2026-03-02'
+  time: '11:05'
+  report_date: '2026-06-01'
+  days_to_report: 91
+  late_notice_violation: true
+  days_over_limit: 61
+  location: Highway 55, Springfield IL
+  zip_code: '62704'
+  type: Single Vehicle Collision
+  severity: Minor Damage
+  cat_event: false
+  cat_event_id: null
+  police_report_filed: true
+  police_report_number: ISP-2026-03-02-1190
+  witness_count: 1
+vehicle:
+  make: Toyota
+  model: Camry
+  year: 2017
+  vin: 4T1BF1FK5HU678901
+  market_value: 14000.0
+financials:
+  repair_estimate: 1700.0
+  medical_total: 0.0
+  injury_claim: 0.0
+  gross_amount: 1700.0
+  deductible: 1000.0
+  net_settlement: 700.0
+  market_value: 14000.0
+  total_loss_ratio: 0.1214
+  total_loss_flag: false
+invoice_matching:
+  invoice_number: INV-005-2026
+  po_reference: PO-005-2026
+  grn_reference: null
+  provider_id: PROV-105
+  invoice_amount: 1700.0
+  expected_amount: 1700.0
+  variance_pct: 0.06
+  match_status: match
+provider:
+  provider_id: PROV-105
+  provider_name: Springfield Auto Works
+  tax_id: 37-2220005
+  address: 888 E. Capitol Ave, Springfield IL 62701
+  is_blacklisted: false
+  fraud_ring_id: null
+documents:
+- type: fnol
+  file: fnol.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: policy
+  file: policy.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+- type: repair_estimate
+  file: repair_estimate.pdf
+  processable: true
+  expected_confidence: high
+  required: true
+  invoice_number: INV-005-2026
+  ocr_flags: []
+- type: police_report
+  file: police_report.pdf
+  processable: true
+  expected_confidence: high
+  report_number: ISP-2026-03-02-1190
+- type: vendor_master
+  file: vendor_master.pdf
+  processable: true
+  expected_confidence: high
+  provider_id: PROV-105
+- type: photo
+  file: photos/damage_front.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+- type: photo
+  file: photos/damage_rear.jpg
+  processable: false
+  status: reference_only
+  note: Actual photo not included in synthetic dataset
+flags:
+  cat_event: false
+  fraud_history: false
+  new_claimant: false
+  late_notice: true
+  coverage_denied: false
+  siu_referral: false
+  manual_review: false
+  total_loss: false
+  missing_documents: false
+  duplicate_claim: false
+  policy_expired: false
+  low_ocr_confidence: false
+fraud_assessment:
+  fraud_score: 0.18
+  risk_level: low
+  requires_siu: false
+  expected_indicators: []
+  provider_blacklisted: false
+  provider_ring_match: false
+  provider_ring_id: null
+  billing_variance_pct: 0.06
+  prior_claims_trigger: false
+  prior_claims_18mo: 0
+  prior_claim_ids: *id001
+audit:
+  created_at: '2026-06-12T17:44:40Z'
+  updated_at: '2026-06-12T17:44:40Z'
+  processed_by: sicps-dataset-generator-v2.1
+  data_source: synthetic-fpdf2
+  schema_version: '2.1'
+  generator_script: generate_sicps_dataset.py
+  input_hash: sha256:synthetic-placeholder-CLM-2026-005
+  idempotency_key: CLM-2026-005
+ocr:
+  confidence: 0.93
+  extraction_errors: []
+  low_confidence_fields: []
+  requires_manual_review: false
+  document_quality: high
+  simulated_defects: []
+  bounding_box_available: true
+  min_field_confidence: 0.8700000000000001
+expected_agent_signals:
+  agent_fnol_intake:
+    priority: standard
+    risk_flags:
+    - late_notice
+  agent_document_extraction:
+    min_confidence: 0.9
+    requires_manual_review: false
+  agent_coverage_validation:
+    coverage_active: true
+    denial_reason: late_notice_violation
+    days_late: 61
+  agent_damage_assessment:
+    gross_amount: 1700.0
+    total_loss: false
+  agent_fraud_detection:
+    fraud_score_max: 0.2
+    siu_referral: false
+  agent_exception_triage:
+    routing: adjuster_review
+    net_settlement: 700.0
+cross_document_validations:
+- check: policy_number_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claimant_name_match
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_after_inception
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: incident_date_before_expiry
+  documents:
+  - fnol
+  - policy
+  expected: true
+- check: claim_id_on_all_documents
+  documents:
+  - fnol
+  - estimate
+  expected: true
+- check: provider_id_on_vendor_master
+  documents:
+  - estimate
+  - vendor_master
+  expected: true
+adjuster_notes: 'LATE NOTICE: days_to_report=91 exceeds policy threshold of 30 days
+  (61 days over limit). Claimant cites international travel as reason. Coverage determination
+  requires supervisor review per Section 7.1.'
