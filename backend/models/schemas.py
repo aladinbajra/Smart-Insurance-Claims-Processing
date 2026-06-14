@@ -292,11 +292,11 @@ class IncidentInfo(BaseModel):
 
 class VehicleInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    make:         str
-    model:        str
-    year:         int
-    vin:          str
-    market_value: float
+    make:         str | None = None
+    model:        str | None = None
+    year:         int | None = None
+    vin:          str | None = None
+    market_value: float | None = None
 
 
 class FinancialInfo(BaseModel):
