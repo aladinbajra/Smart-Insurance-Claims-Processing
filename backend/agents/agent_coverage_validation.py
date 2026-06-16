@@ -103,8 +103,6 @@ class AgentCoverageValidation:
         findings: list[Finding] = []
 
         claim_id: str = claim_summary["claim_id"]
-        incident: dict = claim_summary["incident"]
-        claim_details: dict = claim_summary.get("claim_details", {})
 
         coverage_active: bool = True
         denial_reason: str | None = None
@@ -112,9 +110,10 @@ class AgentCoverageValidation:
         waiting_period_active: bool = False
 
         # ----------------------------------------------------------
-        # Derived dates
+        # Derived dates — incident_date is denormalized directly on the
+        # claim summary (Agent B output), not nested under an "incident" object.
         # ----------------------------------------------------------
-        incident_date = self._parse_date(incident["date"])
+        incident_date = self._parse_date(claim_summary["incident_date"])
         effective_date = self._parse_date(policy["effective_date"])
         expiration_date = self._parse_date(policy["expiration_date"])
 
@@ -136,7 +135,7 @@ class AgentCoverageValidation:
                     ),
                     evidence_links=[
                         "policy.expiration_date",
-                        "claim_summary.incident.date",
+                        "claim_summary.incident_date",
                     ],
                 )
             )
@@ -172,7 +171,7 @@ class AgentCoverageValidation:
                     ),
                     evidence_links=[
                         "policy.effective_date",
-                        "claim_summary.incident.date",
+                        "claim_summary.incident_date",
                     ],
                 )
             )
@@ -195,15 +194,15 @@ class AgentCoverageValidation:
         # ----------------------------------------------------------
         policy_exclusions: list[str] = policy.get("exclusions", [])
 
-        claim_text_fields: list[str] = [
-            str(v).lower()
-            for v in claim_details.values()
-            if isinstance(v, str)
-        ]
+        # Match exclusions against the text Agent B actually extracted from the
+        # documents (claim_summary.extracted_fields), not manifest ground truth.
+        extracted_fields: list[dict] = claim_summary.get("extracted_fields", [])
 
-        incident_description: str = (
-            incident.get("description", "").lower()
-        )
+        claim_text_fields: list[str] = [
+            str(field.get("value", "")).lower()
+            for field in extracted_fields
+            if isinstance(field.get("value"), str)
+        ]
 
         for exclusion in policy_exclusions:
             exclusion_lower = exclusion.lower()
@@ -211,7 +210,7 @@ class AgentCoverageValidation:
             matched = any(
                 exclusion_lower in field
                 for field in claim_text_fields
-            ) or exclusion_lower in incident_description
+            )
 
             if matched:
                 exclusions_triggered.append(exclusion)
@@ -232,8 +231,7 @@ class AgentCoverageValidation:
                     ),
                     evidence_links=[
                         "policy.exclusions",
-                        "claim_summary.claim_details",
-                        "claim_summary.incident.description",
+                        "claim_summary.extracted_fields",
                     ],
                 )
             )
@@ -279,7 +277,7 @@ class AgentCoverageValidation:
                         ),
                         evidence_links=[
                             "policy.pre_existing_lookback_days",
-                            "claim_summary.incident.date",
+                            "claim_summary.incident_date",
                             "policy.effective_date",
                         ],
                     )
@@ -288,7 +286,7 @@ class AgentCoverageValidation:
         # ----------------------------------------------------------
         # Rule 5: Late Notice
         # ----------------------------------------------------------
-        days_to_report: int = incident.get("days_to_report", 0)
+        days_to_report: int = claim_summary.get("days_to_report", 0)
         late_notice_days: int = policy.get("late_notice_days", 0)
 
         late_notice_violation: bool = days_to_report > late_notice_days
@@ -302,7 +300,7 @@ class AgentCoverageValidation:
                         "Review late reporting before settlement."
                     ),
                     evidence_links=[
-                        "claim_summary.incident.days_to_report",
+                        "claim_summary.days_to_report",
                         "policy.late_notice_days",
                     ],
                 )
@@ -337,8 +335,6 @@ class AgentCoverageValidation:
         days_to_report: int = 0,
     ) -> CoverageResult:
 
-        incident: dict = claim_summary["incident"]
-
         result = CoverageResult(
             claim_id=claim_id,
             coverage_active=coverage_active,
@@ -346,7 +342,7 @@ class AgentCoverageValidation:
             denial_reason=denial_reason,
             late_notice_violation=late_notice_violation,
             late_notice_days_allowed=policy.get("late_notice_days", 0),
-            days_to_report=days_to_report or incident.get("days_to_report", 0),
+            days_to_report=days_to_report or claim_summary.get("days_to_report", 0),
             exclusions_triggered=exclusions_triggered,
             deductible=policy["deductible"],
             coverage_limit=policy["coverage_limit"],

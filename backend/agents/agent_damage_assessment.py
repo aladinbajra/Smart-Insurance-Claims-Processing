@@ -121,41 +121,44 @@ class AgentDamageAssessment:
 
     def process(
         self,
-        context_packet: dict,
+        claim_summary: dict,
+        coverage_result: dict,
     ) -> SettlementCalc:
+        """
+        Parameters
+        ----------
+        claim_summary:
+            Parsed content of runs/<claim_id>/claim_summary.json
+            produced by Agent B. REQ-038.
+        coverage_result:
+            Parsed content of runs/<claim_id>/coverage_result.json
+            produced by Agent C. REQ-039.
+        """
 
-        claim_id: str = context_packet["claim_id"]
-        financials: dict = context_packet["financials"]
+        claim_id: str = claim_summary["claim_id"]
 
         findings: list[Finding] = []
         audit_entries: list[str] = []
 
         # --------------------------------------------------------------
-        # OCR / missing-document guard
+        # OCR / missing-document guard — derived from Agent B output
         # --------------------------------------------------------------
-        flags: dict = context_packet.get("flags", {})
+        overall_confidence = claim_summary.get("overall_confidence")
 
-        overall_confidence = context_packet.get("overall_confidence")
-
-        missing_documents: bool = bool(flags.get("missing_documents", False))
-
-        low_ocr_flag: bool = bool(flags.get("low_ocr_confidence", False))
+        missing_documents: bool = bool(claim_summary.get("extraction_errors"))
 
         ocr_min: float = self.policy_pack.extraction.min_confidence_auto_process
 
-        unresolvable = (
-            low_ocr_flag
-            or (overall_confidence is not None and overall_confidence < ocr_min)
-            or missing_documents
+        low_ocr_flag: bool = (
+            overall_confidence is not None and overall_confidence < ocr_min
         )
 
+        unresolvable = low_ocr_flag or missing_documents
+
         if unresolvable:
-            if low_ocr_flag:
-                error_descriptor = "low_ocr_confidence"
-            elif overall_confidence is not None and overall_confidence < ocr_min:
-                error_descriptor = "low_ocr_confidence"
-            else:
-                error_descriptor = "missing_documents"
+            error_descriptor = (
+                "missing_documents" if missing_documents else "low_ocr_confidence"
+            )
 
             audit_entries.append(f"Processing halted: {error_descriptor}")
 
@@ -168,8 +171,8 @@ class AgentDamageAssessment:
                         "Settlement cannot be computed automatically."
                     ),
                     evidence_links=[
-                        "context_packet.overall_confidence",
-                        "context_packet.flags.missing_documents",
+                        "claim_summary.overall_confidence",
+                        "claim_summary.extraction_errors",
                     ],
                     timestamp=self._now(),
                 )
@@ -178,11 +181,10 @@ class AgentDamageAssessment:
             audit_entries.append(f"Settlement findings generated: {len(findings)}")
             audit_entries.append("Settlement processing completed.")
 
-            # Fix D-7: use 0.0 for all float fields — None is not valid
             result = SettlementCalc(
                 claim_id=claim_id,
                 gross_amount=0.0,
-                deductible=financials.get("deductible", 0.0),
+                deductible=coverage_result.get("deductible", 0.0),
                 net_settlement=0.0,
                 line_items=[],
                 repair_estimate=0.0,
@@ -203,19 +205,19 @@ class AgentDamageAssessment:
             return result
 
         # --------------------------------------------------------------
-        # Extract financials
+        # Extract financials — from claim_summary (Agent B) and
+        # coverage_result (Agent C). REQ-038–039.
         # --------------------------------------------------------------
-        repair_estimate: float = financials["repair_estimate"]
-        medical_total: float = financials["medical_total"]
-        deductible: float = financials["deductible"]
-        market_value: float = financials["market_value"]
+        repair_estimate: float = claim_summary["repair_estimate"]
+        medical_total: float = claim_summary["medical_total"]
+        market_value: float = claim_summary["market_value"]
 
-        # Fix D-9: injury_claim is defined in FinancialInfo; include it
-        injury_claim: float = financials.get("injury_claim", 0.0)
+        # Deductible comes from Agent C (policy-validated value)
+        deductible: float = coverage_result["deductible"]
 
-        # Fix D-8: replacement_value is NOT in FinancialInfo schema;
-        # .get() is safe for raw-dict usage and returns 0.0 always
-        replacement_value: float = financials.get("replacement_value", 0.0)
+        # ClaimSummary schema does not carry injury_claim or replacement_value
+        injury_claim: float = 0.0
+        replacement_value: float = 0.0
 
         # --------------------------------------------------------------
         # D-006: Missing market value
@@ -229,7 +231,7 @@ class AgentDamageAssessment:
                         "Market value unavailable. " "Variance calculations limited."
                     ),
                     evidence_links=[
-                        "context_packet.financials.market_value",
+                        "claim_summary.market_value",
                     ],
                     timestamp=self._now(),
                 )
@@ -237,7 +239,7 @@ class AgentDamageAssessment:
             audit_entries.append("Market value missing.")
 
         # --------------------------------------------------------------
-        # Line items — Fix D-9: injury_claim included
+        # Line items
         # --------------------------------------------------------------
         line_items: list[LineItem] = [
             LineItem(
@@ -271,8 +273,7 @@ class AgentDamageAssessment:
             )
 
         # --------------------------------------------------------------
-        # Gross amount — Fix D-9: injury_claim included
-        # Fix D-10: audit log notes this is Agent D's recomputation
+        # Gross amount
         # --------------------------------------------------------------
         gross_amount: float = (
             repair_estimate + medical_total + injury_claim + replacement_value
@@ -309,8 +310,8 @@ class AgentDamageAssessment:
                     severity=Severity.high,
                     recommendation="Escalate total loss settlement.",
                     evidence_links=[
-                        "context_packet.financials.repair_estimate",
-                        "context_packet.financials.market_value",
+                        "claim_summary.repair_estimate",
+                        "claim_summary.market_value",
                     ],
                     timestamp=self._now(),
                 )
@@ -327,7 +328,7 @@ class AgentDamageAssessment:
                     severity=Severity.medium,
                     recommendation="Review deductible application.",
                     evidence_links=[
-                        "context_packet.financials.deductible",
+                        "coverage_result.deductible",
                     ],
                     timestamp=self._now(),
                 )
@@ -369,7 +370,7 @@ class AgentDamageAssessment:
                     severity=Severity.medium,
                     recommendation="Review repair estimate variance.",
                     evidence_links=[
-                        "context_packet.financials.repair_estimate",
+                        "claim_summary.repair_estimate",
                     ],
                     timestamp=self._now(),
                 )
@@ -386,7 +387,7 @@ class AgentDamageAssessment:
                     severity=Severity.medium,
                     recommendation="Review medical estimate variance.",
                     evidence_links=[
-                        "context_packet.financials.medical_total",
+                        "claim_summary.medical_total",
                     ],
                     timestamp=self._now(),
                 )
@@ -403,8 +404,7 @@ class AgentDamageAssessment:
                     severity=Severity.medium,
                     recommendation="Review replacement value against market value.",
                     evidence_links=[
-                        "context_packet.financials.replacement_value",
-                        "context_packet.financials.market_value",
+                        "claim_summary.market_value",
                     ],
                     timestamp=self._now(),
                 )
