@@ -232,7 +232,7 @@ class AgentFraudDetection:
             indicators.append(
                 FraudIndicator(
                     indicator="multiple_prior_claims",
-                    weight=0.25,
+                    weight=0.30,
                     evidence=(
                         "context_packet.json:"
                         "claimant.prior_claims_18mo"
@@ -554,7 +554,7 @@ class AgentFraudDetection:
                     ),
                     evidence_links=[indicator.evidence],
                     recommendation=(
-                        "Refer claim to SIU for fraud review."
+                        "Refer claim to SIU for fraud review. Net settlement is subject to zero-pay pending SIU review."
                         if siu_referral
                         else "Continue with adjuster review if needed."
                     ),
