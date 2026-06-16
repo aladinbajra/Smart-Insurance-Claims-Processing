@@ -1,31 +1,3 @@
-"""
-Agent D: Damage Assessment & Preliminary Settlement — REQ-019–020.
-
-Fixes applied vs original:
-  D-1  datetime.utcnow() → datetime.now(timezone.utc)
-  D-2  total_loss_ratio = repair_estimate / market_value  (medical + replacement
-       excluded — vehicle total-loss is a physical damage metric only)
-  D-3  total_loss threshold read from self.policy_pack.approval.total_loss_ratio_threshold
-       (replaces hardcoded 0.75 literal)
-  D-4  _calculate_repair_variance: now computes repair_estimate / gross_amount
-       (repair share of total claim) — bounded [0,1], meaningful, uses
-       tolerances.repair_cost_variance_pct correctly. The original
-       repair/market_value produced ratios routinely exceeding 0.25 on any
-       significant repair, causing constant false D-003 alerts.
-  D-5  _calculate_medical_variance: medical_total / gross_amount is retained —
-       it is the only meaningful bounded metric available in the schema
-       (no external benchmark field exists in PolicyPack or FinancialInfo).
-  D-6  error_descriptor NOT passed to SettlementCalc (extra="forbid" — would
-       ValidationError). Error surfaced via D-007 finding instead.
-  D-7  OCR fallback uses 0.0 for all float fields, not None (SettlementCalc
-       fields are typed float, not float | None — None would ValidationError).
-  D-8  replacement_value not in FinancialInfo schema — always defaults to 0.0;
-       .get() retained for raw-dict safety but key will never be present.
-  D-9  injury_claim read from financials and included in gross_amount + LineItems.
-  D-10 Audit log notes that gross_amount is Agent D's recomputation, which may
-       differ from context_packet.financials.gross_amount (Agent A pre-calc).
-"""
-
 import json
 
 from datetime import datetime, timezone
