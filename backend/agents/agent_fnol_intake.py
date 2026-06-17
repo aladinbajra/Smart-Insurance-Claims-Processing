@@ -181,6 +181,7 @@ class AgentFNOLIntake:
             findings=findings,
             input_hash=input_hash,
             created_at=created_at,
+            adjuster_notes=manifest.adjuster_notes,
         )
 
         # Save the standardized context packet.

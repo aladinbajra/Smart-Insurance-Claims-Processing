@@ -402,6 +402,7 @@ class ContextPacket(BaseModel):
     findings:       list[Finding] = []
     input_hash:     str
     created_at:     str
+    adjuster_notes: str = ""
 
 
 # =============================================================================

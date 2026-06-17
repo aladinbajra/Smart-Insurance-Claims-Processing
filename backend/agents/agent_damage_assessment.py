@@ -1,6 +1,5 @@
 import json
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,10 +27,19 @@ class AgentDamageAssessment:
     # Helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _now() -> str:
-        # Fix D-1: replaces datetime.utcnow().isoformat()
-        return datetime.now(timezone.utc).isoformat()
+    def _load_created_at(self, claim_id: str) -> str:
+        """
+        Deterministic run timestamp taken from Agent A's context packet.
+        Keeps settlement_calc.json byte-for-byte reproducible (REQ-044)
+        instead of stamping each run with wall-clock now().
+        """
+        context_path = self.runs_dir / claim_id / "context_packet.json"
+        if context_path.is_file():
+            with context_path.open("r", encoding="utf-8") as file:
+                return str(
+                    json.load(file).get("created_at", "1970-01-01T00:00:00Z")
+                )
+        return "1970-01-01T00:00:00Z"
 
     @staticmethod
     def _create_finding(
@@ -137,6 +145,9 @@ class AgentDamageAssessment:
 
         claim_id: str = claim_summary["claim_id"]
 
+        # Deterministic timestamp for all findings (REQ-044).
+        created_at = self._load_created_at(claim_id)
+
         findings: list[Finding] = []
         audit_entries: list[str] = []
 
@@ -174,7 +185,7 @@ class AgentDamageAssessment:
                         "claim_summary.overall_confidence",
                         "claim_summary.extraction_errors",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
 
@@ -233,7 +244,7 @@ class AgentDamageAssessment:
                     evidence_links=[
                         "claim_summary.market_value",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
             audit_entries.append("Market value missing.")
@@ -313,7 +324,7 @@ class AgentDamageAssessment:
                         "claim_summary.repair_estimate",
                         "claim_summary.market_value",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
             audit_entries.append("Total loss detected.")
@@ -330,7 +341,7 @@ class AgentDamageAssessment:
                     evidence_links=[
                         "coverage_result.deductible",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
             audit_entries.append("Settlement reduced to zero.")
@@ -372,7 +383,7 @@ class AgentDamageAssessment:
                     evidence_links=[
                         "claim_summary.repair_estimate",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
             audit_entries.append("Repair variance exceeded tolerance.")
@@ -389,7 +400,7 @@ class AgentDamageAssessment:
                     evidence_links=[
                         "claim_summary.medical_total",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
             audit_entries.append("Medical variance exceeded tolerance.")
@@ -406,7 +417,7 @@ class AgentDamageAssessment:
                     evidence_links=[
                         "claim_summary.market_value",
                     ],
-                    timestamp=self._now(),
+                    timestamp=created_at,
                 )
             )
             audit_entries.append("Replacement value exceeds market value.")

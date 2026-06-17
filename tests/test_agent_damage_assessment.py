@@ -188,3 +188,28 @@ def test_scenario_08_low_ocr_halts(tmp_path: Path) -> None:
     assert result["net_settlement"] == 0.0
     assert result["gross_amount"] == 0.0
     assert "D-007-UNRESOLVABLE_FILE" in _finding_codes(result)
+
+
+# ---------------------------------------------------------------------------
+# REQ-044 — Agent C and Agent D outputs are byte-for-byte deterministic.
+# Re-running must NOT change finding timestamps (no wall-clock now()).
+# ---------------------------------------------------------------------------
+
+def test_coverage_and_settlement_are_deterministic(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    _run_through_c(runs_dir, "scenario_02_total_loss", "CLM-2026-002")
+    run_dir = runs_dir / "CLM-2026-002"
+
+    # Establish the baseline: C already ran, run D once.
+    _run_damage(runs_dir, "CLM-2026-002")
+    coverage_first = (run_dir / "coverage_result.json").read_bytes()
+    settlement_first = (run_dir / "settlement_calc.json").read_bytes()
+
+    # Re-run C and D against the same inputs.
+    claim_summary = _load(run_dir / "claim_summary.json")
+    policy = _load(run_dir / "context_packet.json")["policy"]
+    AgentCoverageValidation(runs_dir=runs_dir).process(claim_summary, policy)
+    _run_damage(runs_dir, "CLM-2026-002")
+
+    assert (run_dir / "coverage_result.json").read_bytes() == coverage_first
+    assert (run_dir / "settlement_calc.json").read_bytes() == settlement_first

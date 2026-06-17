@@ -33,6 +33,9 @@ class AgentCoverageValidation:
 
         self.runs_dir = Path(runs_dir)
 
+        # Deterministic run timestamp; set per-claim in process().
+        self._created_at: str = "1970-01-01T00:00:00Z"
+
     @staticmethod
     def _write_json(
         path: Path,
@@ -53,10 +56,19 @@ class AgentCoverageValidation:
 
             file.write("\n")
 
-    @staticmethod
-    def _now() -> str:
-
-        return datetime.now(timezone.utc).isoformat()
+    def _load_created_at(self, claim_id: str) -> str:
+        """
+        Deterministic run timestamp taken from Agent A's context packet.
+        Using the canonical run timestamp (instead of wall-clock now())
+        keeps coverage_result.json byte-for-byte reproducible (REQ-044).
+        """
+        context_path = self.runs_dir / claim_id / "context_packet.json"
+        if context_path.is_file():
+            with context_path.open("r", encoding="utf-8") as file:
+                return str(
+                    json.load(file).get("created_at", "1970-01-01T00:00:00Z")
+                )
+        return "1970-01-01T00:00:00Z"
 
     @staticmethod
     def _parse_date(value: str) -> datetime:
@@ -82,7 +94,7 @@ class AgentCoverageValidation:
             recommendation=recommendation,
             open_questions=[],
             requires_human_review=True,
-            timestamp=self._now(),
+            timestamp=self._created_at,
         )
 
     def process(
@@ -103,6 +115,9 @@ class AgentCoverageValidation:
         findings: list[Finding] = []
 
         claim_id: str = claim_summary["claim_id"]
+
+        # Deterministic timestamp for all findings (REQ-044).
+        self._created_at = self._load_created_at(claim_id)
 
         coverage_active: bool = True
         denial_reason: str | None = None
