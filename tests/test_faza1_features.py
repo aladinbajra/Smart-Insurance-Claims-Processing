@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from backend.agents.agent_coverage_validation import AgentCoverageValidation
+from backend.agents.agent_damage_assessment import AgentDamageAssessment
 from backend.pipeline.runner import PipelineRunner
 
 
@@ -124,3 +125,68 @@ def test_medical_within_sub_limit_no_flag(tmp_path: Path) -> None:
 
     codes = [f.finding_id for f in result.findings]
     assert "C-005-SUBLIMIT_EXCEEDED" not in codes
+
+
+# ---------------------------------------------------------------------------
+# REQ-017 — Agent D enforces the medical sub-limit: the payout is capped, not
+# just flagged.
+# ---------------------------------------------------------------------------
+
+def _damage_claim_summary(medical: float, repair: float = 0.0) -> dict:
+    return {
+        "claim_id": "TEST-CAP-001",
+        "repair_estimate": repair,
+        "medical_total": medical,
+        "market_value": 0.0,
+        "overall_confidence": 0.95,
+        "extraction_errors": [],
+        "extracted_fields": [],
+    }
+
+
+def test_medical_sublimit_caps_payout(tmp_path: Path) -> None:
+    runs = tmp_path / "runs" / "TEST-CAP-001"
+    runs.mkdir(parents=True)
+    claim = _damage_claim_summary(medical=60000.0)  # > 50000 medical_max
+    coverage = {"deductible": 0.0}
+
+    result = AgentDamageAssessment(_config(), tmp_path / "runs").process(claim, coverage)
+
+    # Payout is capped at the 50000 sub-limit, not the 60000 billed.
+    assert result.medical_total == 50000.0
+    assert result.gross_amount == 50000.0
+    assert "D-009-MEDICAL_SUBLIMIT_APPLIED" in [f.finding_id for f in result.findings]
+
+
+def test_medical_under_sublimit_not_capped(tmp_path: Path) -> None:
+    runs = tmp_path / "runs" / "TEST-CAP-002"
+    runs.mkdir(parents=True)
+    claim = _damage_claim_summary(medical=4200.0)
+    claim["claim_id"] = "TEST-CAP-002"
+    coverage = {"deductible": 0.0}
+
+    result = AgentDamageAssessment(_config(), tmp_path / "runs").process(claim, coverage)
+
+    assert result.medical_total == 4200.0
+    assert "D-009-MEDICAL_SUBLIMIT_APPLIED" not in [f.finding_id for f in result.findings]
+
+
+# ---------------------------------------------------------------------------
+# Spec §1a — single-FNOL input mode: a lone FNOL routes to manual review and is
+# idempotent across runs.
+# ---------------------------------------------------------------------------
+
+def test_single_fnol_intake_routes_to_manual_review(tmp_path: Path) -> None:
+    runner = _runner(tmp_path)
+    fnol = _dataset("scenario_01_clean_auto") / "fnol.pdf"
+
+    result = runner.run_fnol(fnol)
+    assert result.claim_id == "CLM-2026-001"
+    assert result.routing_decision == "manual_review_route"
+    assert result.net_settlement == 0.0
+    for artifact in ("approval_packet.json", "exceptions.md", "metrics.json"):
+        assert (result.run_dir / artifact).exists(), artifact
+
+    # Deterministic synthesis -> identical bundle hash -> cache hit on re-run.
+    second = runner.run_fnol(fnol)
+    assert second.cache_hit is True

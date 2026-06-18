@@ -87,33 +87,33 @@ class AgentDamageAssessment:
     @staticmethod
     def _calculate_repair_variance(
         repair_estimate: float,
-        gross_amount: float,
+        expected_amount: float,
     ) -> float:
         """
-        Fix D-4: Compute repair estimate as a share of total gross amount.
-        This is bounded [0, 1] and meaningful as a composition check.
-        Compare against tolerances.repair_cost_variance_pct (0.25).
-        Original divided by market_value, producing ratios that falsely
-        exceeded the 25% tolerance on almost any significant repair.
+        Genuine repair-cost variance (REQ-020): the relative deviation of the
+        repair estimate from the expected/PO amount carried on the invoice.
+        Returns 0.0 when no expected baseline is available (rather than the old
+        repair/gross composition ratio, which exceeded tolerance on almost
+        every claim). Compared against tolerances.repair_cost_variance_pct.
         """
-        if gross_amount <= 0:
+        if expected_amount <= 0:
             return 0.0
-        return round(repair_estimate / gross_amount, 4)
+        return round(abs(repair_estimate - expected_amount) / expected_amount, 4)
 
     @staticmethod
     def _calculate_medical_variance(
         medical_total: float,
-        gross_amount: float,
+        medical_sub_limit: float,
     ) -> float:
         """
-        Fix D-5: Medical costs as a share of gross settlement.
-        Retained from original — no external medical benchmark exists
-        in PolicyPack or FinancialInfo schemas. Bounded [0, 1].
-        Compare against tolerances.medical_cost_variance_pct (0.30).
+        Medical billing variance measured against the only available policy
+        benchmark — the medical sub-limit (REQ-017). Returns the relative
+        overage above the cap, or 0.0 when within the cap / no cap configured.
+        Compared against tolerances.medical_cost_variance_pct.
         """
-        if gross_amount <= 0:
+        if medical_sub_limit <= 0 or medical_total <= medical_sub_limit:
             return 0.0
-        return round(medical_total / gross_amount, 4)
+        return round((medical_total - medical_sub_limit) / medical_sub_limit, 4)
 
     @staticmethod
     def _is_within_tolerance(
@@ -233,6 +233,33 @@ class AgentDamageAssessment:
         # ClaimSummary carries no separate injury_claim line.
         injury_claim: float = 0.0
 
+        # Enforce the medical sub-limit cap (REQ-017). Agent C flags an over-cap
+        # medical total; Agent D actually limits the payout so the settlement
+        # never exceeds the policy maximum.
+        medical_sub_limit: float = float(
+            self.policy_pack.coverage.sub_limits.get("medical_max", 0.0)
+        )
+        medical_paid: float = medical_total
+        if medical_sub_limit > 0 and medical_total > medical_sub_limit:
+            medical_paid = medical_sub_limit
+            findings.append(
+                self._create_finding(
+                    finding_id="D-009-MEDICAL_SUBLIMIT_APPLIED",
+                    severity=Severity.medium,
+                    recommendation=(
+                        f"Medical billing {medical_total} exceeds the policy "
+                        f"sub-limit {medical_sub_limit}; payout capped at the "
+                        "sub-limit."
+                    ),
+                    evidence_links=[
+                        "claim_summary.medical_total",
+                        "policy.sub_limits.medical_max",
+                    ],
+                    timestamp=created_at,
+                )
+            )
+            audit_entries.append("Medical payout capped at sub-limit.")
+
         # --------------------------------------------------------------
         # D-006: Missing market value
         # --------------------------------------------------------------
@@ -291,8 +318,12 @@ class AgentDamageAssessment:
         line_items: list[LineItem] = [
             vehicle_line,
             LineItem(
-                description="Medical Costs",
-                amount=medical_total,
+                description=(
+                    "Medical Costs (capped at sub-limit)"
+                    if medical_paid < medical_total
+                    else "Medical Costs"
+                ),
+                amount=medical_paid,
                 category="medical",
             ),
         ]
@@ -308,8 +339,9 @@ class AgentDamageAssessment:
 
         # --------------------------------------------------------------
         # Gross amount = vehicle component (repair or replacement) + medical
+        # (capped at the sub-limit) + injury
         # --------------------------------------------------------------
-        gross_amount: float = vehicle_component + medical_total + injury_claim
+        gross_amount: float = vehicle_component + medical_paid + injury_claim
 
         audit_entries.append(f"Gross amount calculated (Agent D): {gross_amount}")
 
@@ -353,18 +385,21 @@ class AgentDamageAssessment:
             audit_entries.append("Settlement reduced to zero.")
 
         # --------------------------------------------------------------
-        # Variance calculations
-        # Fix D-4: repair_estimate / gross_amount (bounded, meaningful)
-        # Fix D-5: medical_total / gross_amount (retained, bounded)
+        # Variance calculations — genuine deviations from a baseline:
+        # repair vs expected/PO amount; medical vs the policy sub-limit.
         # --------------------------------------------------------------
+        expected_repair_amount: float = float(
+            invoice_matching.get("expected_amount", 0.0)
+        ) if invoice_matching else 0.0
+
         repair_variance_pct: float = self._calculate_repair_variance(
             repair_estimate,
-            gross_amount,
+            expected_repair_amount,
         )
 
         medical_variance_pct: float = self._calculate_medical_variance(
             medical_total,
-            gross_amount,
+            medical_sub_limit,
         )
 
         repair_within_tolerance: bool = self._is_within_tolerance(
@@ -481,7 +516,7 @@ class AgentDamageAssessment:
             net_settlement=net_settlement,
             line_items=line_items,
             repair_estimate=repair_estimate,
-            medical_total=medical_total,
+            medical_total=medical_paid,
             replacement_value=replacement_value,
             market_value=market_value,
             total_loss_ratio=round(total_loss_ratio, 4),

@@ -77,6 +77,22 @@ def test_run_and_fetch_result(client: TestClient) -> None:
     assert "audit_log.md" in detail["artifacts"]
 
 
+def test_run_fnol_single_document(client: TestClient) -> None:
+    resp = client.post(
+        "/run-fnol", json={"fnol": "scenario_01_clean_auto/fnol.pdf"}
+    )
+    assert resp.status_code == 200
+    summary = resp.json()
+    assert summary["claim_id"] == "CLM-2026-001"
+    assert summary["routing_decision"] == "manual_review_route"
+    assert summary["net_settlement"] == 0.0
+
+
+def test_run_fnol_missing_404(client: TestClient) -> None:
+    resp = client.post("/run-fnol", json={"fnol": "scenario_01_clean_auto/nope.pdf"})
+    assert resp.status_code == 404
+
+
 def test_second_run_is_cache_hit(client: TestClient) -> None:
     client.post("/run", json={"bundle": "scenario_07_fraud_ring"})
     resp = client.post("/run", json={"bundle": "scenario_07_fraud_ring"})

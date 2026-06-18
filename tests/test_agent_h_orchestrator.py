@@ -55,16 +55,18 @@ def _run_full_pipeline(runs_dir: Path, scenario: str, claim_id: str) -> Path:
 # "coverage_denial"). Source: dataset expected_agent_signals.agent_exception_triage.
 _EXPECTED = [
     ("scenario_01_clean_auto", "CLM-2026-001", "auto_settle"),
-    ("scenario_02_total_loss", "CLM-2026-002", "adjuster_review"),
+    # Total loss, late notice, low-OCR/missing docs and CAT events each get a
+    # distinct routing category (not a generic adjuster_review bucket).
+    ("scenario_02_total_loss", "CLM-2026-002", "total_loss_routing"),
     ("scenario_03_siu_referral", "CLM-2026-003", "siu_referral"),
     ("scenario_04_coverage_denial", "CLM-2026-004", "coverage_denial"),
-    ("scenario_05_late_notice", "CLM-2026-005", "adjuster_review"),
-    ("scenario_06_cat_event", "CLM-2026-006", "auto_settle"),
+    ("scenario_05_late_notice", "CLM-2026-005", "late_notice_review"),
+    ("scenario_06_cat_event", "CLM-2026-006", "cat_surge_processing"),
     ("scenario_07_fraud_ring", "CLM-2026-007", "siu_referral"),
-    ("scenario_08_low_ocr", "CLM-2026-008", "adjuster_review"),
+    ("scenario_08_low_ocr", "CLM-2026-008", "manual_review_route"),
     ("scenario_09_homeowners", "CLM-2026-009", "auto_settle"),
     ("scenario_10_expired_policy", "CLM-2026-010", "coverage_denial"),
-    ("scenario_11_missing_documents", "CLM-2026-011", "adjuster_review"),
+    ("scenario_11_missing_documents", "CLM-2026-011", "manual_review_route"),
     # Scenario 12 uses provider PROV-999 (blacklisted + RING-CHI-001), so the
     # single-claim pipeline correctly escalates to SIU. The dataset labels it
     # adjuster_review only because it knows the claim duplicates the already-

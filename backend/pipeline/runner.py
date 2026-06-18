@@ -20,7 +20,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sys
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,6 +164,23 @@ class PipelineRunner:
             run_dir=run_dir,
         )
 
+    def run_fnol(self, fnol_path: str | Path, force: bool = False) -> RunResult:
+        """
+        Run the pipeline from a single FNOL document (Spec §1a). The FNOL is
+        synthesized into a minimal claims bundle in a temporary directory, then
+        processed by the standard pipeline. Re-running the same FNOL is
+        idempotent: the synthesized manifest is deterministic, so the bundle
+        hash — and therefore the cache hit — is stable across runs.
+        """
+        from backend.tools.fnol_intake import synthesize_fnol_bundle
+
+        bundle_dir = Path(tempfile.mkdtemp(prefix="sicps_fnol_"))
+        try:
+            synthesize_fnol_bundle(fnol_path, bundle_dir, self.config_path)
+            return self.run(bundle_dir, force=force)
+        finally:
+            shutil.rmtree(bundle_dir, ignore_errors=True)
+
     def run_all(self, claims_dir: str | Path, force: bool = False) -> list[RunResult]:
         """
         Run every claims bundle under ``claims_dir`` (each subfolder with a
@@ -281,6 +299,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Treat 'path' as a directory containing multiple claim bundles.",
     )
+    parser.add_argument(
+        "--fnol",
+        action="store_true",
+        help="Treat 'path' as a single FNOL document (Spec §1a single-FNOL mode).",
+    )
     parser.add_argument("--runs-dir", default="runs", help="Run output directory.")
     parser.add_argument(
         "--config", default="config/policy.yaml", help="Policy pack path."
@@ -308,6 +331,13 @@ def main(argv: list[str] | None = None) -> int:
         for result in results:
             print(_format(result))
         return 0 if all(r.error is None for r in results) else 1
+
+    if args.fnol:
+        result = runner.run_fnol(args.path, force=args.force)
+        print("Single-FNOL intake complete:")
+        print(_format(result))
+        print(f"  artifacts: {result.run_dir}")
+        return 0 if result.error is None else 1
 
     result = runner.run(args.path, force=args.force)
     print("Pipeline complete:")

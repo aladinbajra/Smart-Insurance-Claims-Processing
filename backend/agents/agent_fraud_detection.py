@@ -124,6 +124,16 @@ class AgentFraudDetection:
             indicators=indicators,
         )
 
+        self._check_staged_accident(
+            claim_summary=claim_summary,
+            indicators=indicators,
+        )
+
+        self._check_provider_collusion(
+            provider=provider,
+            indicators=indicators,
+        )
+
         self._check_optional_agent_outputs(
             claim_summary=claim_summary,
             coverage_result=coverage_result,
@@ -131,8 +141,6 @@ class AgentFraudDetection:
         )
 
         fraud_score = self._calculate_fraud_score(indicators)
-
-        risk_level = self._determine_risk_level(fraud_score)
 
         provider_blacklisted = self._is_provider_blacklisted(provider)
 
@@ -146,6 +154,9 @@ class AgentFraudDetection:
             settlement_calc=settlement_calc
         )
 
+        # SIU referral is driven only by observable, defensible signals:
+        # a high weighted score, a blacklisted/ring provider, or a claim
+        # frequency that crosses the policy SIU trigger (REQ-021/024/025).
         siu_referral = (
             fraud_score
             >= float(
@@ -153,8 +164,7 @@ class AgentFraudDetection:
             )
             or provider_blacklisted
             or provider_ring_match
-            or bool(claimant.get("fraud_history", False))
-            or bool(flags.get("duplicate_claim", False))
+            or prior_claims_trigger
         )
 
         adjuster_review = (
@@ -163,7 +173,14 @@ class AgentFraudDetection:
             >= float(
                 self.fraud_policy.get("medium_risk_threshold", 0.40)
             )
-            or bool(flags.get("missing_documents", False))
+        )
+
+        # An SIU referral is inherently high risk; organized fraud (a provider
+        # that is both blacklisted and in a known ring) is critical.
+        risk_level = self._determine_risk_level(
+            fraud_score,
+            siu_referral=siu_referral,
+            organized_fraud=provider_blacklisted and provider_ring_match,
         )
 
         evidence_links = [
@@ -306,15 +323,10 @@ class AgentFraudDetection:
                     evidence="context_packet.json:flags.low_ocr_confidence",
                 )
             )
-
-        if flags.get("siu_referral") is True:
-            indicators.append(
-                FraudIndicator(
-                    indicator="manifest_siu_referral_flag",
-                    weight=0.30,
-                    evidence="context_packet.json:flags.siu_referral",
-                )
-            )
+        # NOTE: flags.siu_referral (the dataset's expected-outcome label) is
+        # deliberately NOT read here. Fraud risk is derived from observable
+        # signals — provider blacklist/ring, claim frequency, billing variance,
+        # staged-accident vehicle counts — never from the ground-truth answer.
 
     def _check_financial_risk(
         self,
@@ -333,29 +345,85 @@ class AgentFraudDetection:
                 )
             )
 
-        repair_variance_pct = settlement_calc.get(
-            "repair_variance_pct"
-        )
+        # Inflated billing — derived from the REAL invoice/PO/GRN billing
+        # variance computed by Agent D's matcher (REQ-043), not the bounded
+        # composition ratio. inflated_repair_multiplier is a multiple (1.50x),
+        # so the equivalent variance threshold is multiplier - 1.0 (i.e. 0.50).
+        billing_variance = settlement_calc.get("billing_variance_pct")
 
-        if repair_variance_pct is not None:
+        if billing_variance is not None:
             inflated_threshold = float(
-                self.fraud_policy.get(
-                    "inflated_repair_multiplier",
-                    1.50,
+                self.fraud_policy.get("inflated_repair_multiplier", 1.50)
+            ) - 1.0
+
+            if float(billing_variance) > inflated_threshold:
+                indicators.append(
+                    FraudIndicator(
+                        indicator="inflated_billing",
+                        weight=0.25,
+                        evidence="settlement_calc.json:billing_variance_pct",
+                    )
+                )
+
+    def _check_staged_accident(
+        self,
+        claim_summary: dict[str, Any],
+        indicators: list[FraudIndicator],
+    ) -> None:
+        """
+        Staged-accident signal (REQ-021/024): an incident involving an
+        unusually high number of vehicles. The vehicle count is taken from the
+        police-report field Agent B extracted, never from a manifest flag.
+        """
+        vehicle_count = self._extracted_int(claim_summary, "vehicle_count")
+        if vehicle_count is None:
+            return
+
+        threshold = int(
+            self.fraud_policy.get("staged_accident_vehicle_threshold", 3)
+        )
+        if vehicle_count >= threshold:
+            indicators.append(
+                FraudIndicator(
+                    indicator="staged_accident_signal",
+                    weight=0.20,
+                    evidence=(
+                        "claim_summary.json:extracted_fields.vehicle_count="
+                        f"{vehicle_count}"
+                    ),
                 )
             )
 
-            if float(repair_variance_pct) > inflated_threshold:
-                indicators.append(
-                    FraudIndicator(
-                        indicator="inflated_repair_cost",
-                        weight=0.25,
-                        evidence=(
-                            "settlement_calc.json:"
-                            "repair_variance_pct"
-                        ),
-                    )
+    def _check_provider_collusion(
+        self,
+        provider: dict[str, Any],
+        indicators: list[FraudIndicator],
+    ) -> None:
+        """
+        Provider-collusion signal (REQ-024): the provider belongs to a known
+        ring whose membership meets the policy collusion threshold (a network
+        of N+ colluding providers), indicating organized rather than isolated
+        fraud.
+        """
+        ring = self._matched_ring(provider)
+        if ring is None:
+            return
+
+        min_matches = int(
+            self.fraud_policy.get("provider_collusion_min_matches", 2)
+        )
+        member_count = len(ring.get("provider_ids", []) or [])
+        if member_count >= min_matches:
+            indicators.append(
+                FraudIndicator(
+                    indicator="provider_collusion",
+                    weight=0.20,
+                    evidence=(
+                        f"policy.yaml:known_fraud_rings.{ring.get('ring_id')}"
+                        f" ({member_count} colluding providers)"
+                    ),
                 )
+            )
 
     def _check_optional_agent_outputs(
         self,
@@ -467,14 +535,48 @@ class AgentFraudDetection:
     def _billing_variance_pct(
         settlement_calc: dict[str, Any],
     ) -> float:
-        """Read billing variance from Agent D output if available."""
-
-        value = settlement_calc.get(
-            "repair_variance_pct",
-            0.0,
-        )
-
+        """
+        Read the real invoice/PO/GRN billing variance from Agent D's matcher
+        (REQ-043), not the bounded composition ratio.
+        """
+        value = settlement_calc.get("billing_variance_pct", 0.0)
         return float(value or 0.0)
+
+    @staticmethod
+    def _extracted_int(
+        claim_summary: dict[str, Any],
+        field_name: str,
+    ) -> int | None:
+        """Return an integer value from Agent B's extracted_fields, or None."""
+        for field in claim_summary.get("extracted_fields", []) or []:
+            if field.get("field_name") == field_name:
+                value = field.get("value")
+                try:
+                    return int(float(value))
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _matched_ring(
+        self,
+        provider: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Return the known-fraud-ring config the provider belongs to, or None."""
+        if not provider:
+            return None
+
+        ring_id = provider.get("fraud_ring_id")
+        provider_id = provider.get("provider_id")
+        tax_id = provider.get("tax_id")
+
+        for ring in self.fraud_policy.get("known_fraud_rings", []):
+            if ring_id and ring_id == ring.get("ring_id"):
+                return ring
+            if provider_id in ring.get("provider_ids", []):
+                return ring
+            if tax_id in ring.get("tax_ids", []):
+                return ring
+        return None
 
     @staticmethod
     def _calculate_fraud_score(
@@ -496,8 +598,14 @@ class AgentFraudDetection:
     def _determine_risk_level(
         self,
         fraud_score: float,
+        siu_referral: bool = False,
+        organized_fraud: bool = False,
     ) -> RiskLevel:
-        """Map the numeric fraud score to a risk level."""
+        """
+        Map the numeric fraud score to a risk level, with two domain overrides:
+        organized fraud (blacklisted provider also in a known ring) is always
+        critical, and any SIU referral is at least high risk.
+        """
 
         high_threshold = float(
             self.fraud_policy.get("high_risk_threshold", 0.75)
@@ -507,10 +615,10 @@ class AgentFraudDetection:
             self.fraud_policy.get("medium_risk_threshold", 0.40)
         )
 
-        if fraud_score >= 0.90:
+        if organized_fraud or fraud_score >= 0.90:
             return RiskLevel.critical
 
-        if fraud_score >= high_threshold:
+        if siu_referral or fraud_score >= high_threshold:
             return RiskLevel.high
 
         if fraud_score >= medium_threshold:

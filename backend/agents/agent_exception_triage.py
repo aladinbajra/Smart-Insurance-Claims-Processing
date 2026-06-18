@@ -269,24 +269,25 @@ class AgentExceptionTriage:
         # 3. Extraction quality too low to decide automatically.
         if claim_summary.get("requires_manual_review") is True:
             return (
-                RoutingDecision.adjuster_review,
+                RoutingDecision.manual_review_route,
                 "Extraction confidence below threshold (low OCR or missing "
-                "documents); manual adjuster review required.",
+                "documents); manual review required.",
             )
 
         # 4. Total loss requires market-value adjudication.
         if settlement.get("total_loss_flag") is True:
             return (
-                RoutingDecision.adjuster_review,
-                "Total loss detected; adjuster must determine market-value "
-                "settlement.",
+                RoutingDecision.total_loss_routing,
+                "Total loss detected; route to total-loss market-value "
+                "valuation.",
             )
 
         # 5. Late notice puts coverage at risk.
         if coverage.get("late_notice_violation") is True:
             return (
-                RoutingDecision.adjuster_review,
-                "Late notice violation; adjuster review of coverage required.",
+                RoutingDecision.late_notice_review,
+                "Late notice violation; review reporting window against "
+                "coverage before settlement.",
             )
 
         # 6. Possible duplicate submission.
@@ -318,21 +319,22 @@ class AgentExceptionTriage:
         )
         if settlement and gross > senior_threshold:
             return (
-                RoutingDecision.adjuster_review,
+                RoutingDecision.senior_review,
                 f"Gross amount {gross:,.2f} exceeds senior-review threshold "
-                f"{senior_threshold:,.2f}.",
+                f"{senior_threshold:,.2f}; escalate to a senior adjuster.",
             )
 
-        # 9. Auto-settle paths — only when Agent D actually produced a result.
+        # 9. CAT surge fast-track — a live catastrophe event activates surge
+        #    processing mode (distinct from straight-through auto-settle).
         if settlement:
             net = self._as_float(settlement.get("net_settlement"))
 
             surge_limit = float(self.cat_cfg.get("surge_auto_approve_limit", 0.0))
             if self._cat_surge_eligible(incident) and net <= surge_limit:
                 return (
-                    RoutingDecision.auto_settle,
-                    f"CAT surge fast-track: net {net:,.2f} within surge limit "
-                    f"{surge_limit:,.2f}.",
+                    RoutingDecision.cat_surge_processing,
+                    f"CAT surge processing mode: net {net:,.2f} within surge "
+                    f"limit {surge_limit:,.2f}.",
                 )
 
             home_limit = float(self.approval.get("homeowners_auto_approve_limit", 0.0))

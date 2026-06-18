@@ -39,19 +39,25 @@ class AgentCoverageValidation:
         # Deterministic run timestamp; set per-claim in process().
         self._created_at: str = "1970-01-01T00:00:00Z"
 
-        # Regional state overrides (REQ-037) and coverage sub-limits (REQ-017),
-        # loaded from policy.yaml when a config path is supplied.
+        # Regional state overrides (REQ-037), coverage sub-limits (REQ-017) and
+        # the pre-existing lookback window (REQ-018), loaded from policy.yaml
+        # when a config path is supplied. The lookback lives in the policy pack,
+        # not on the per-claim PolicyInfo, so it must be wired in from config.
         self._state_overrides: dict[str, int] = {}
         self._sub_limits: dict[str, float] = {}
+        self._lookback_days: int | None = None
         if config_path is not None:
             cfg = self._load_yaml(Path(config_path))
+            coverage_cfg = cfg.get("coverage", {}) or {}
             overrides = (cfg.get("compliance", {}) or {}).get("state_overrides", {}) or {}
             self._state_overrides = {
                 state: int(rule["late_notice_days"])
                 for state, rule in overrides.items()
                 if isinstance(rule, dict) and rule.get("late_notice_days") is not None
             }
-            self._sub_limits = (cfg.get("coverage", {}) or {}).get("sub_limits", {}) or {}
+            self._sub_limits = coverage_cfg.get("sub_limits", {}) or {}
+            if coverage_cfg.get("pre_existing_lookback_days") is not None:
+                self._lookback_days = int(coverage_cfg["pre_existing_lookback_days"])
 
     @staticmethod
     def _load_yaml(path: Path) -> dict[str, Any]:
@@ -289,9 +295,12 @@ class AgentCoverageValidation:
         # ----------------------------------------------------------
         # Rule 4: Waiting Period / Lookback Window
         # ----------------------------------------------------------
-        pre_existing_lookback_days: int = policy.get(
-            "pre_existing_lookback_days",
-            0,
+        # Prefer the policy-pack value (REQ-018/058); fall back to any value on
+        # the per-claim policy record for backward compatibility.
+        pre_existing_lookback_days: int = (
+            self._lookback_days
+            if self._lookback_days is not None
+            else int(policy.get("pre_existing_lookback_days", 0))
         )
 
         if pre_existing_lookback_days > 0:

@@ -98,6 +98,11 @@ class RunRequest(BaseModel):
     force: bool = False
 
 
+class FnolRequest(BaseModel):
+    fnol: str  # path to a single FNOL document, relative to the claims dir
+    force: bool = False
+
+
 # ----------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------
@@ -132,6 +137,15 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"bundle not found: {name}")
         return candidate
 
+    def _resolve_fnol(name: str) -> Path:
+        candidate = (claims_dir / name).resolve()
+        claims_root = claims_dir.resolve()
+        if claims_root not in candidate.parents:
+            raise HTTPException(status_code=400, detail="invalid fnol path")
+        if not candidate.is_file():
+            raise HTTPException(status_code=404, detail=f"fnol not found: {name}")
+        return candidate
+
     def _run_dir(claim_id: str) -> Path:
         run_dir = (runs_dir / claim_id).resolve()
         if runs_dir.resolve() not in run_dir.parents:
@@ -153,6 +167,7 @@ def create_app(
                 "/health",
                 "/claims",
                 "/run",
+                "/run-fnol",
                 "/runs",
                 "/runs/{claim_id}",
                 "/runs/{claim_id}/artifacts/{name}",
@@ -193,6 +208,25 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 — surface as HTTP error
             raise HTTPException(
                 status_code=500, detail=f"pipeline failed: {exc}"
+            ) from exc
+        return RunSummary(
+            claim_id=result.claim_id,
+            routing_decision=result.routing_decision,
+            net_settlement=result.net_settlement,
+            cache_hit=result.cache_hit,
+            duration_seconds=result.duration_seconds,
+            input_hash=result.input_hash,
+        )
+
+    @app.post("/run-fnol", response_model=RunSummary)
+    def run_fnol(request: FnolRequest) -> RunSummary:
+        """Single-FNOL intake (Spec §1a) — run the pipeline from one FNOL doc."""
+        fnol_path = _resolve_fnol(request.fnol)
+        try:
+            result = runner.run_fnol(fnol_path, force=request.force)
+        except Exception as exc:  # noqa: BLE001 — surface as HTTP error
+            raise HTTPException(
+                status_code=500, detail=f"fnol intake failed: {exc}"
             ) from exc
         return RunSummary(
             claim_id=result.claim_id,

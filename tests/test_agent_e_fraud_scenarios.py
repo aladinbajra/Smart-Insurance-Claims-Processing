@@ -164,3 +164,53 @@ def test_runs_with_full_upstream_pipeline(tmp_path: Path) -> None:
     assert result["provider_ring_match"] is True
     assert result["siu_referral"] is True
     assert (run_dir / "fraud_score.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Anti-pattern guard — Agent E must NOT use the manifest's siu_referral answer
+# flag. A claim whose only "signal" is the ground-truth flag must not be SIU.
+# ---------------------------------------------------------------------------
+
+def test_no_manifest_answer_key_leak(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "CLM-FAKE-001"
+    run_dir.mkdir(parents=True)
+    context = {
+        "claim_id": "CLM-FAKE-001",
+        "created_at": "1970-01-01T00:00:00Z",
+        "claimant": {
+            "prior_claims_18mo": 0,
+            "fraud_history": False,
+            "new_claimant": False,
+        },
+        "provider": {},
+        "financials": {"total_loss_flag": False},
+        # The dataset's expected-outcome flag is set, but there is no genuine
+        # fraud signal — Agent E must ignore it.
+        "flags": {"siu_referral": True},
+    }
+    with (run_dir / "context_packet.json").open("w", encoding="utf-8") as fh:
+        json.dump(context, fh)
+
+    result = AgentFraudDetection(config_path=_config()).process(run_dir)
+
+    assert result["siu_referral"] is False
+    assert result["fraud_score"] == 0.0
+    assert "manifest_siu_referral_flag" not in _indicator_names(result)
+
+
+# ---------------------------------------------------------------------------
+# REQ-024 — organized fraud: ring membership drives a collusion signal and a
+# real (matcher-derived) billing variance drives an inflated-billing signal.
+# ---------------------------------------------------------------------------
+
+def test_provider_collusion_and_inflated_billing(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    run_dir = _run_full_to_d(runs_dir, "scenario_07_fraud_ring", "CLM-2026-007")
+    result = AgentFraudDetection(config_path=_config()).process(run_dir)
+
+    names = _indicator_names(result)
+    assert "provider_collusion" in names
+    assert "inflated_billing" in names
+    # The real invoice/PO billing variance (not the bounded composition ratio).
+    assert result["billing_variance_pct"] == 1.87
+    assert result["risk_level"] == "critical"

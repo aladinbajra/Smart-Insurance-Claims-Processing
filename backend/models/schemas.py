@@ -179,6 +179,7 @@ class CoverageConfig(BaseModel):
     late_notice_days_medical:    int
     waiting_period_enforcement:  bool
     pre_existing_lookback_days:  int
+    sub_limits:                  dict[str, float] = {}
 
 
 class ExtractionConfig(BaseModel):
