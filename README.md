@@ -1,7 +1,7 @@
 # Smart Insurance Claims Processing (SICPS)
 
 Multi-agent AI pipeline for automated insurance claims validation and settlement.
-Built with Python, FastAPI, Anthropic Claude, and Streamlit.
+Built with Python, FastAPI, and Streamlit, with an optional OpenAI advisory agent.
 
 ---
 
@@ -63,13 +63,19 @@ Built with Python, FastAPI, Anthropic Claude, and Streamlit.
 
 ```bash
 cp .env.example .env
-# Add your ANTHROPIC_API_KEY to .env
+# Optional: add OPENAI_API_KEY to .env for the advisory agent
 pip install -r requirements.txt
 ```
 
 ## Run
 
 ```bash
+# One-command pipeline (single bundle, all bundles, single FNOL, or determinism check)
+python -m backend.pipeline.runner <bundle>            # one claim bundle
+python -m backend.pipeline.runner <dir> --all         # every bundle in a folder
+python -m backend.pipeline.runner <fnol.pdf> --fnol   # single FNOL document
+python -m backend.pipeline.runner <bundle> --verify   # byte-for-byte determinism
+
 # Backend API
 uvicorn backend.main:app --reload
 
@@ -94,3 +100,4 @@ Each pipeline run produces the following in `runs/{claim_id}/`:
 | `exceptions.md` | Exception summary + next actions |
 | `audit_log.md` | Step-by-step trace of all decisions |
 | `metrics.json` | Throughput + accuracy rates |
+| `settlement_payload.json` / `.csv` | CoreLogic-ready settlement posting payload |

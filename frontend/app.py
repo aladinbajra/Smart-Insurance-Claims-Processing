@@ -35,6 +35,7 @@ JSON_ARTIFACTS = (
     "fraud_score.json",
     "approval_packet.json",
     "metrics.json",
+    "settlement_payload.json",
 )
 TEXT_ARTIFACTS = (
     "exceptions.md",
@@ -42,7 +43,10 @@ TEXT_ARTIFACTS = (
     "audit_log_agent_b.md",
     "settlement_audit.md",
 )
-ALL_ARTIFACTS = JSON_ARTIFACTS + TEXT_ARTIFACTS
+CSV_ARTIFACTS = (
+    "settlement_payload.csv",
+)
+ALL_ARTIFACTS = JSON_ARTIFACTS + TEXT_ARTIFACTS + CSV_ARTIFACTS
 
 PAGES = (
     "Executive Dashboard",
@@ -85,6 +89,20 @@ ROUTING_COLORS = {
     "senior_review": "#4f46e5",
     "not_run": "#64748b",
 }
+
+# Routing buckets for KPI rollups — kept in sync with the 9 RoutingDecision
+# values so summary counts cover every category (auto-settle + CAT surge are
+# straight-through; total loss / late notice / manual / senior / adjuster all
+# need a human; coverage denial is terminal).
+AUTO_ROUTINGS = {"auto_settle", "cat_surge_processing"}
+REVIEW_ROUTINGS = {
+    "adjuster_review",
+    "manual_review_route",
+    "senior_review",
+    "total_loss_routing",
+    "late_notice_review",
+}
+DENIAL_ROUTINGS = {"coverage_denial"}
 
 
 st.set_page_config(
@@ -1056,7 +1074,11 @@ def pipeline_visual(run: dict[str, Any] | None) -> None:
         present = (run_dir / artifact).is_file()
         agent_findings = [item for item in findings if item.get("agent") == agent_key]
         has_exception = any(item.get("severity") in ("critical", "high") for item in agent_findings)
-        needs_review = bool(agent_findings) or routing in ("adjuster_review", "siu_referral", "coverage_denial")
+        needs_review = (
+            bool(agent_findings)
+            or routing in REVIEW_ROUTINGS
+            or routing in {"siu_referral", "coverage_denial"}
+        )
         if not present:
             color = "#94a3b8"
             status = "Pending"
@@ -1205,6 +1227,8 @@ def claim_profile(row: dict[str, Any]) -> None:
             path = Path(run["run_dir"]) / artifact
             if artifact.endswith(".json"):
                 st.json(read_json(str(path)), expanded=False)
+            elif artifact.endswith(".csv"):
+                st.code(read_text(str(path)), language="csv")
             else:
                 st.markdown(read_text(str(path)))
         else:
@@ -1218,9 +1242,9 @@ def executive_dashboard(rows: list[dict[str, Any]], runs: list[dict[str, Any]]) 
     )
 
     total = len(rows)
-    approved = sum(1 for row in rows if row.get("routing") == "auto_settle")
-    denied = sum(1 for row in rows if row.get("routing") == "coverage_denial")
-    pending = sum(1 for row in rows if row.get("routing") in {"adjuster_review", "manual_review_route", "senior_review"})
+    approved = sum(1 for row in rows if row.get("routing") in AUTO_ROUTINGS)
+    denied = sum(1 for row in rows if row.get("routing") in DENIAL_ROUTINGS)
+    pending = sum(1 for row in rows if row.get("routing") in REVIEW_ROUTINGS)
     fraud_risk = sum(1 for row in rows if as_float(row.get("fraud_score")) >= 0.4 or row.get("routing") == "siu_referral")
     avg_settlement = sum(as_float(row.get("net_settlement")) for row in rows) / total if total else 0
     avg_ocr = sum(as_float(row.get("ocr_confidence")) for row in rows) / total if total else 0
