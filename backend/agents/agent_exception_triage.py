@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -183,6 +184,21 @@ class AgentExceptionTriage:
             evidence_bundle=evidence_bundle,
         )
 
+        # CoreLogic-ready settlement payload in CSV (REQ-004).
+        self._write_settlement_csv(
+            run_path / "settlement_payload.csv",
+            claim_id=claim_id,
+            run_id=run_id,
+            routing=routing,
+            net_settlement=net_settlement,
+            settlement=settlement,
+            coverage=coverage,
+            fraud=fraud,
+            exception_count=len(exceptions),
+            finalized_at=finalized_at,
+            input_hash=input_hash,
+        )
+
         # Finalise Agent D's preliminary settlement (REQ-019/020).
         if settlement:
             settlement["finalized"] = True
@@ -285,6 +301,14 @@ class AgentExceptionTriage:
             return (
                 RoutingDecision.adjuster_review,
                 "Elevated fraud indicators; adjuster review recommended.",
+            )
+
+        # 7b. Invoice/PO/GRN mismatch — billing variance approval.
+        if settlement.get("invoice_match_status") == "mismatch":
+            return (
+                RoutingDecision.adjuster_review,
+                "Invoice does not match PO/expected amount; billing variance "
+                "approval required.",
             )
 
         # 8. Large gross exceeds the senior-review threshold.
@@ -478,11 +502,25 @@ class AgentExceptionTriage:
                 assigned_to="adjuster",
             )
 
+        # Invoice / PO / GRN matching exception (REQ-043).
+        if settlement.get("invoice_match_status") == "mismatch":
+            add(
+                category="billing_variance",
+                severity=Severity.medium,
+                description=(
+                    "Invoice/PO/GRN mismatch — billing variance "
+                    f"{settlement.get('billing_variance_pct')}."
+                ),
+                recommended_action="Review invoice against PO/GRN before settlement.",
+                evidence_links=["settlement_calc.json:invoice_match_status"],
+                assigned_to="adjuster",
+            )
+
         # NOTE: repair/medical variance exceptions are intentionally NOT raised
-        # here. Agent D currently computes variance as repair/gross (bounded
-        # [0,1]) which exceeds the 0.25 tolerance on almost every claim, so the
-        # signal is unreliable. Re-enable once Agent D measures variance against
-        # an expected-cost benchmark (e.g. invoice_matching.variance_pct).
+        # here. Agent D computes those as repair/gross (bounded [0,1]) which
+        # exceeds the 0.25 tolerance on almost every claim, so that signal is
+        # unreliable. The reliable billing variance (above) comes from the
+        # invoice/PO/GRN matcher instead.
 
         # Senior review for large gross amounts.
         gross = self._as_float(settlement.get("gross_amount"))
@@ -692,6 +730,66 @@ class AgentExceptionTriage:
             return {}
         with path.open("r", encoding="utf-8") as file:
             return json.load(file)
+
+    @staticmethod
+    def _write_settlement_csv(
+        path: Path,
+        claim_id: str,
+        run_id: str,
+        routing: RoutingDecision,
+        net_settlement: float,
+        settlement: dict,
+        coverage: dict,
+        fraud: dict,
+        exception_count: int,
+        finalized_at: str,
+        input_hash: str,
+    ) -> None:
+        """
+        CoreLogic-ready settlement posting payload as a single-row CSV
+        (REQ-004). Fixed column order + deterministic values keep it
+        byte-for-byte reproducible (REQ-044).
+        """
+        columns = [
+            "claim_id",
+            "run_id",
+            "routing_decision",
+            "net_settlement",
+            "gross_amount",
+            "deductible",
+            "coverage_active",
+            "total_loss_flag",
+            "fraud_score",
+            "risk_level",
+            "invoice_match_status",
+            "billing_variance_pct",
+            "exception_count",
+            "finalized_at",
+            "input_hash",
+        ]
+        row = {
+            "claim_id": claim_id,
+            "run_id": run_id,
+            "routing_decision": routing.value,
+            "net_settlement": net_settlement,
+            "gross_amount": AgentExceptionTriage._as_float(settlement.get("gross_amount")),
+            "deductible": AgentExceptionTriage._as_float(settlement.get("deductible")),
+            "coverage_active": coverage.get("coverage_active", ""),
+            "total_loss_flag": settlement.get("total_loss_flag", ""),
+            "fraud_score": AgentExceptionTriage._as_float(fraud.get("fraud_score")),
+            "risk_level": fraud.get("risk_level", ""),
+            "invoice_match_status": settlement.get("invoice_match_status", "not_evaluated"),
+            "billing_variance_pct": AgentExceptionTriage._as_float(
+                settlement.get("billing_variance_pct")
+            ),
+            "exception_count": exception_count,
+            "finalized_at": finalized_at,
+            "input_hash": input_hash,
+        }
+        with path.open("w", encoding="utf-8", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=columns, lineterminator="\n")
+            writer.writeheader()
+            writer.writerow(row)
 
     @staticmethod
     def _write_json(path: Path, data: dict[str, Any]) -> None:

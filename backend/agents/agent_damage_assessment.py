@@ -10,6 +10,7 @@ from backend.models.schemas import (
     Severity,
 )
 from backend.tools.pdf_extractor import load_policy
+from backend.tools.invoice_matcher import match_invoice
 
 
 class AgentDamageAssessment:
@@ -27,19 +28,17 @@ class AgentDamageAssessment:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _load_created_at(self, claim_id: str) -> str:
+    def _load_context(self, claim_id: str) -> dict[str, Any]:
         """
-        Deterministic run timestamp taken from Agent A's context packet.
-        Keeps settlement_calc.json byte-for-byte reproducible (REQ-044)
-        instead of stamping each run with wall-clock now().
+        Load Agent A's context packet (run timestamp + invoice matching inputs).
+        Using the canonical run timestamp keeps settlement_calc.json
+        byte-for-byte reproducible (REQ-044) instead of wall-clock now().
         """
         context_path = self.runs_dir / claim_id / "context_packet.json"
         if context_path.is_file():
             with context_path.open("r", encoding="utf-8") as file:
-                return str(
-                    json.load(file).get("created_at", "1970-01-01T00:00:00Z")
-                )
-        return "1970-01-01T00:00:00Z"
+                return json.load(file)
+        return {}
 
     @staticmethod
     def _create_finding(
@@ -145,8 +144,11 @@ class AgentDamageAssessment:
 
         claim_id: str = claim_summary["claim_id"]
 
-        # Deterministic timestamp for all findings (REQ-044).
-        created_at = self._load_created_at(claim_id)
+        # Load Agent A context once: deterministic timestamp (REQ-044) +
+        # invoice/PO/GRN matching inputs (REQ-043).
+        context = self._load_context(claim_id)
+        created_at = str(context.get("created_at", "1970-01-01T00:00:00Z"))
+        invoice_matching = context.get("invoice_matching") or {}
 
         findings: list[Finding] = []
         audit_entries: list[str] = []
@@ -208,6 +210,8 @@ class AgentDamageAssessment:
                 medical_variance_pct=0.0,
                 repair_within_tolerance=True,
                 medical_within_tolerance=True,
+                billing_variance_pct=0.0,
+                invoice_match_status="not_evaluated",
                 findings=findings,
                 finalized=False,
             )
@@ -226,9 +230,8 @@ class AgentDamageAssessment:
         # Deductible comes from Agent C (policy-validated value)
         deductible: float = coverage_result["deductible"]
 
-        # ClaimSummary schema does not carry injury_claim or replacement_value
+        # ClaimSummary carries no separate injury_claim line.
         injury_claim: float = 0.0
-        replacement_value: float = 0.0
 
         # --------------------------------------------------------------
         # D-006: Missing market value
@@ -250,14 +253,43 @@ class AgentDamageAssessment:
             audit_entries.append("Market value missing.")
 
         # --------------------------------------------------------------
-        # Line items
+        # Total loss detection (computed before settlement composition)
+        # ratio = repair_estimate / market_value; threshold from policy_pack
         # --------------------------------------------------------------
-        line_items: list[LineItem] = [
-            LineItem(
+        total_loss_ratio: float = (
+            repair_estimate / market_value if market_value > 0 else 0.0
+        )
+
+        total_loss_threshold: float = (
+            self.policy_pack.approval.total_loss_ratio_threshold
+        )
+
+        total_loss_flag: bool = total_loss_ratio >= total_loss_threshold
+
+        # --------------------------------------------------------------
+        # Settlement composition (REQ-019: repair, medical, replacement)
+        # A total loss pays the market / replacement value, not the repair
+        # cost — you do not pay repair on a vehicle worth less than repair.
+        # --------------------------------------------------------------
+        if total_loss_flag and market_value > 0:
+            replacement_value: float = market_value
+            vehicle_component: float = market_value
+            vehicle_line = LineItem(
+                description="Replacement Value (Total Loss)",
+                amount=market_value,
+                category="replacement",
+            )
+        else:
+            replacement_value = 0.0
+            vehicle_component = repair_estimate
+            vehicle_line = LineItem(
                 description="Repair Estimate",
                 amount=repair_estimate,
                 category="repair",
-            ),
+            )
+
+        line_items: list[LineItem] = [
+            vehicle_line,
             LineItem(
                 description="Medical Costs",
                 amount=medical_total,
@@ -274,21 +306,10 @@ class AgentDamageAssessment:
                 )
             )
 
-        if replacement_value > 0:
-            line_items.append(
-                LineItem(
-                    description="Replacement Value",
-                    amount=replacement_value,
-                    category="replacement",
-                )
-            )
-
         # --------------------------------------------------------------
-        # Gross amount
+        # Gross amount = vehicle component (repair or replacement) + medical
         # --------------------------------------------------------------
-        gross_amount: float = (
-            repair_estimate + medical_total + injury_claim + replacement_value
-        )
+        gross_amount: float = vehicle_component + medical_total + injury_claim
 
         audit_entries.append(f"Gross amount calculated (Agent D): {gross_amount}")
 
@@ -298,21 +319,6 @@ class AgentDamageAssessment:
         net_settlement: float = max(gross_amount - deductible, 0.0)
 
         audit_entries.append(f"Net settlement calculated: {net_settlement}")
-
-        # --------------------------------------------------------------
-        # Total loss detection
-        # Fix D-2: ratio uses repair_estimate / market_value only
-        # Fix D-3: threshold from policy_pack, not hardcoded 0.75
-        # --------------------------------------------------------------
-        total_loss_ratio: float = (
-            repair_estimate / market_value if market_value > 0 else 0.0
-        )
-
-        total_loss_threshold: float = (
-            self.policy_pack.approval.total_loss_ratio_threshold
-        )
-
-        total_loss_flag: bool = total_loss_ratio >= total_loss_threshold
 
         if total_loss_flag:
             findings.append(
@@ -423,6 +429,46 @@ class AgentDamageAssessment:
             audit_entries.append("Replacement value exceeds market value.")
 
         # --------------------------------------------------------------
+        # Invoice ↔ PO ↔ GRN matching (REQ-043: Matching Precision)
+        # --------------------------------------------------------------
+        billing_variance_pct = 0.0
+        invoice_match_status = "not_evaluated"
+
+        if invoice_matching:
+            match = match_invoice(
+                invoice_amount=float(invoice_matching.get("invoice_amount", 0.0)),
+                expected_amount=float(invoice_matching.get("expected_amount", 0.0)),
+                line_variance_pct=float(invoice_matching.get("variance_pct", 0.0)),
+                po_reference=invoice_matching.get("po_reference"),
+                grn_reference=invoice_matching.get("grn_reference"),
+                tolerance=self.policy_pack.tolerances.repair_cost_variance_pct,
+            )
+            billing_variance_pct = match.billing_variance_pct
+            invoice_match_status = match.match_status
+
+            audit_entries.append(
+                f"Invoice match: {invoice_match_status} "
+                f"(billing variance {billing_variance_pct})."
+            )
+
+            if match.match_status == "mismatch":
+                findings.append(
+                    self._create_finding(
+                        finding_id="D-008-INVOICE_MISMATCH",
+                        severity=Severity.medium,
+                        recommendation=(
+                            "Invoice does not match PO/expected amount: "
+                            f"{'; '.join(match.reasons)}. Review billing variance."
+                        ),
+                        evidence_links=[
+                            "context_packet.invoice_matching",
+                            "settlement_calc.billing_variance_pct",
+                        ],
+                        timestamp=created_at,
+                    )
+                )
+
+        # --------------------------------------------------------------
         # Finalize audit trail
         # --------------------------------------------------------------
         audit_entries.append(f"Settlement findings generated: {len(findings)}")
@@ -444,6 +490,8 @@ class AgentDamageAssessment:
             medical_variance_pct=medical_variance_pct,
             repair_within_tolerance=repair_within_tolerance,
             medical_within_tolerance=medical_within_tolerance,
+            billing_variance_pct=billing_variance_pct,
+            invoice_match_status=invoice_match_status,
             findings=findings,
             finalized=False,
         )

@@ -50,6 +50,7 @@ _DETERMINISTIC_ARTIFACTS = (
     "exceptions.md",
     "audit_log.md",
     "metrics.json",
+    "settlement_payload.csv",
 )
 
 
@@ -87,7 +88,7 @@ class PipelineRunner:
         # Agents are stateless across claims; instantiate once and reuse.
         self.agent_a = AgentFNOLIntake(self.config_path, self.runs_dir)
         self.agent_b = AgentDocumentExtraction(self.config_path, self.runs_dir)
-        self.agent_c = AgentCoverageValidation(self.runs_dir)
+        self.agent_c = AgentCoverageValidation(self.runs_dir, self.config_path)
         self.agent_d = AgentDamageAssessment(self.config_path, self.runs_dir)
         self.agent_e = AgentFraudDetection(self.config_path)
         self.agent_h = AgentExceptionTriage(self.config_path)

@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from backend.models.schemas import (
     CoverageResult,
     Finding,
@@ -29,12 +31,32 @@ class AgentCoverageValidation:
     def __init__(
         self,
         runs_dir: str | Path,
+        config_path: str | Path | None = None,
     ) -> None:
 
         self.runs_dir = Path(runs_dir)
 
         # Deterministic run timestamp; set per-claim in process().
         self._created_at: str = "1970-01-01T00:00:00Z"
+
+        # Regional state overrides (REQ-037) and coverage sub-limits (REQ-017),
+        # loaded from policy.yaml when a config path is supplied.
+        self._state_overrides: dict[str, int] = {}
+        self._sub_limits: dict[str, float] = {}
+        if config_path is not None:
+            cfg = self._load_yaml(Path(config_path))
+            overrides = (cfg.get("compliance", {}) or {}).get("state_overrides", {}) or {}
+            self._state_overrides = {
+                state: int(rule["late_notice_days"])
+                for state, rule in overrides.items()
+                if isinstance(rule, dict) and rule.get("late_notice_days") is not None
+            }
+            self._sub_limits = (cfg.get("coverage", {}) or {}).get("sub_limits", {}) or {}
+
+    @staticmethod
+    def _load_yaml(path: Path) -> dict[str, Any]:
+        with path.open("r", encoding="utf-8") as file:
+            return yaml.safe_load(file) or {}
 
     @staticmethod
     def _write_json(
@@ -299,10 +321,13 @@ class AgentCoverageValidation:
                 )
 
         # ----------------------------------------------------------
-        # Rule 5: Late Notice
+        # Rule 5: Late Notice — apply regional state override (REQ-037)
         # ----------------------------------------------------------
         days_to_report: int = claim_summary.get("days_to_report", 0)
-        late_notice_days: int = policy.get("late_notice_days", 0)
+        state: str = str(policy.get("state", ""))
+        late_notice_days: int = self._state_overrides.get(
+            state, policy.get("late_notice_days", 0)
+        )
 
         late_notice_violation: bool = days_to_report > late_notice_days
 
@@ -321,6 +346,28 @@ class AgentCoverageValidation:
                 )
             )
 
+        # ----------------------------------------------------------
+        # Rule 6: Sub-limits — coverage caps per category (REQ-017)
+        # ----------------------------------------------------------
+        medical_total: float = float(claim_summary.get("medical_total", 0.0))
+        medical_sub_limit: float = float(self._sub_limits.get("medical_max", 0.0))
+
+        if medical_sub_limit > 0 and medical_total > medical_sub_limit:
+            findings.append(
+                self._make_finding(
+                    finding_id="C-005-SUBLIMIT_EXCEEDED",
+                    severity=Severity.medium,
+                    recommendation=(
+                        f"Medical total {medical_total} exceeds the policy "
+                        f"sub-limit {medical_sub_limit}; cap the medical payout."
+                    ),
+                    evidence_links=[
+                        "claim_summary.medical_total",
+                        "policy.sub_limits.medical_max",
+                    ],
+                )
+            )
+
         return self._finalize(
             claim_id=claim_id,
             claim_summary=claim_summary,
@@ -333,6 +380,7 @@ class AgentCoverageValidation:
             findings=findings,
             late_notice_violation=late_notice_violation,
             days_to_report=days_to_report,
+            late_notice_days_allowed=late_notice_days,
         )
 
     def _finalize(
@@ -348,7 +396,11 @@ class AgentCoverageValidation:
         findings: list[Finding],
         late_notice_violation: bool = False,
         days_to_report: int = 0,
+        late_notice_days_allowed: int | None = None,
     ) -> CoverageResult:
+
+        if late_notice_days_allowed is None:
+            late_notice_days_allowed = policy.get("late_notice_days", 0)
 
         result = CoverageResult(
             claim_id=claim_id,
@@ -356,7 +408,7 @@ class AgentCoverageValidation:
             policy_expired=policy_expired,
             denial_reason=denial_reason,
             late_notice_violation=late_notice_violation,
-            late_notice_days_allowed=policy.get("late_notice_days", 0),
+            late_notice_days_allowed=late_notice_days_allowed,
             days_to_report=days_to_report or claim_summary.get("days_to_report", 0),
             exclusions_triggered=exclusions_triggered,
             deductible=policy["deductible"],

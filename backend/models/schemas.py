@@ -322,6 +322,18 @@ class ProviderInfo(BaseModel):
     fraud_ring_id:  str | None = None
 
 
+class InvoiceMatchInfo(BaseModel):
+    """Invoice ↔ PO ↔ GRN matching inputs (REQ-043). Carried from manifest."""
+    model_config = ConfigDict(extra="ignore")
+    invoice_number:  str | None = None
+    po_reference:    str | None = None
+    grn_reference:   str | None = None
+    provider_id:     str | None = None
+    invoice_amount:  float = 0.0
+    expected_amount: float = 0.0
+    variance_pct:    float = 0.0
+
+
 class DocumentRef(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type:                str
@@ -363,6 +375,7 @@ class ManifestSchema(BaseModel):
     vehicle:          VehicleInfo | None = None
     financials:       FinancialInfo
     provider:         ProviderInfo | None = None
+    invoice_matching: InvoiceMatchInfo | None = None
     documents:        list[DocumentRef]
     flags:            ManifestFlags
     adjuster_notes:   str = ""
@@ -397,6 +410,7 @@ class ContextPacket(BaseModel):
     vehicle:        VehicleInfo | None = None
     financials:     FinancialInfo
     provider:       ProviderInfo | None = None
+    invoice_matching: InvoiceMatchInfo | None = None
     flags:          ManifestFlags
     evidence_index: list[EvidenceIndexEntry]
     findings:       list[Finding] = []
@@ -498,6 +512,8 @@ class SettlementCalc(BaseModel):
     medical_variance_pct:     float
     repair_within_tolerance:  bool
     medical_within_tolerance: bool
+    billing_variance_pct:     float = 0.0
+    invoice_match_status:     str = "not_evaluated"
     findings:                 list[Finding] = []
     finalized:                bool = False
 

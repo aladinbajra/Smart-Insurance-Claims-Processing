@@ -176,6 +176,7 @@ class AgentFNOLIntake:
             vehicle=manifest.vehicle,
             financials=manifest.financials,
             provider=manifest.provider,
+            invoice_matching=manifest.invoice_matching,
             flags=manifest.flags,
             evidence_index=evidence_index,
             findings=findings,

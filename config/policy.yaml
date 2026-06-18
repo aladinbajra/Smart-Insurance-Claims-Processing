@@ -82,6 +82,9 @@ coverage:
   late_notice_days_medical:    90   # medical within N days
   waiting_period_enforcement:  true
   pre_existing_lookback_days:  0    # any damage before inception date is excluded
+  sub_limits:                       # REQ-017: per-category coverage caps
+    medical_max: 50000.00           # max medical payout per claim
+    rental_max:   5000.00           # max rental reimbursement per claim
 
 # -----------------------------------------------------------------------------
 # EXTRACTION QUALITY  (REQ-014, REQ-042)
