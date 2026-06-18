@@ -6,6 +6,7 @@ from pathlib import Path
 
 from backend.agents.agent_coverage_validation import AgentCoverageValidation
 from backend.agents.agent_damage_assessment import AgentDamageAssessment
+from backend.agents.agent_exception_triage import AgentExceptionTriage
 from backend.pipeline.runner import PipelineRunner
 
 
@@ -190,3 +191,34 @@ def test_single_fnol_intake_routes_to_manual_review(tmp_path: Path) -> None:
     # Deterministic synthesis -> identical bundle hash -> cache hit on re-run.
     second = runner.run_fnol(fnol)
     assert second.cache_hit is True
+
+
+# ---------------------------------------------------------------------------
+# Optional artifact #9 — CoreLogic-ready settlement payload as JSON
+# ---------------------------------------------------------------------------
+
+def test_settlement_payload_json(tmp_path: Path) -> None:
+    result = _runner(tmp_path).run(_dataset("scenario_01_clean_auto"))
+    payload_path = result.run_dir / "settlement_payload.json"
+    assert payload_path.exists()
+
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["claim_id"] == "CLM-2026-001"
+    assert payload["routing_decision"] == "auto_settle"
+    assert payload["settlement"]["net_settlement"] == 550.0
+    assert payload["matching"]["invoice_match_status"] == "match"
+
+
+# ---------------------------------------------------------------------------
+# REQ-003 — policy-driven PII redaction in human-readable artifacts
+# ---------------------------------------------------------------------------
+
+def test_pii_redaction_masks_ssn_and_dob_only(tmp_path: Path) -> None:
+    agent = AgentExceptionTriage(_config())
+    text = "SSN 123-45-6789 DOB: 1990-01-02 finalized 2026-06-18"
+    redacted = agent._redact_pii(text)
+
+    assert "123-45-6789" not in redacted
+    assert "***-**-****" in redacted
+    assert "1990-01-02" not in redacted        # labelled DOB is masked
+    assert "2026-06-18" in redacted            # non-DOB date is preserved

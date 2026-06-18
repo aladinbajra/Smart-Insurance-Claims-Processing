@@ -52,6 +52,7 @@ _DETERMINISTIC_ARTIFACTS = (
     "audit_log.md",
     "metrics.json",
     "settlement_payload.csv",
+    "settlement_payload.json",
 )
 
 

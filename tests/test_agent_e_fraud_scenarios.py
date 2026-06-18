@@ -83,7 +83,7 @@ def test_scenario_03_claim_frequency_siu(tmp_path: Path) -> None:
     run_dir = _run_a(runs_dir, "scenario_03_siu_referral", "CLM-2026-003")
     result = AgentFraudDetection(config_path=_config()).process(run_dir)
 
-    assert result["prior_claims_trigger"] is True          # 4 >= 3
+    assert result["prior_claims_trigger"] is True          # 4 >= 4 (spec: 4+)
     assert result["siu_referral"] is True
     assert result["risk_level"] in ("high", "critical")
     names = _indicator_names(result)
@@ -137,7 +137,7 @@ def test_prior_claims_trigger_is_configurable(tmp_path: Path) -> None:
     run_dir = _run_a(runs_dir, "scenario_03_siu_referral", "CLM-2026-003")
 
     baseline = AgentFraudDetection(config_path=_config()).process(run_dir)
-    assert baseline["prior_claims_trigger"] is True   # default trigger = 3, claim has 4
+    assert baseline["prior_claims_trigger"] is True   # default trigger = 4, claim has 4
 
     with _config().open("r", encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh)

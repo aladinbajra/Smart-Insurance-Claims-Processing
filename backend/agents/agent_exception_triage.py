@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,7 @@ class AgentExceptionTriage:
         self.policy = self._load_yaml(self.config_path)
         self.approval = self.policy.get("approval", {}) or {}
         self.cat_cfg = self.policy.get("cat_event", {}) or {}
+        self.privacy = self.policy.get("privacy", {}) or {}
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -187,6 +189,23 @@ class AgentExceptionTriage:
         # CoreLogic-ready settlement payload in CSV (REQ-004).
         self._write_settlement_csv(
             run_path / "settlement_payload.csv",
+            claim_id=claim_id,
+            run_id=run_id,
+            routing=routing,
+            net_settlement=net_settlement,
+            settlement=settlement,
+            coverage=coverage,
+            fraud=fraud,
+            exception_count=len(exceptions),
+            finalized_at=finalized_at,
+            input_hash=input_hash,
+        )
+
+        # CoreLogic-ready settlement payload in JSON — the core-system schema
+        # mapping (optional artifact #9). Same data as the CSV, structured for
+        # posting to a downstream claims/settlement system.
+        self._write_settlement_payload_json(
+            run_path / "settlement_payload.json",
             claim_id=claim_id,
             run_id=run_id,
             routing=routing,
@@ -610,8 +629,28 @@ class AgentExceptionTriage:
     # Markdown writers
     # ------------------------------------------------------------------
 
-    @staticmethod
+    def _redact_pii(self, text: str) -> str:
+        """
+        Apply policy-driven PII redaction to human-readable artifacts
+        (REQ-003). Driven entirely by config/policy.yaml privacy flags so the
+        compliance posture is reconfigurable without code changes.
+        """
+        if not self.privacy.get("audit_log_pii_redaction", False):
+            return text
+        if self.privacy.get("mask_ssn", False):
+            text = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "***-**-****", text)
+        if self.privacy.get("mask_dob", False):
+            # Mask a YYYY-MM-DD date only when it is labelled a date of birth,
+            # so settlement/finalisation dates remain intact.
+            text = re.sub(
+                r"(?i)(date of birth|dob)(\s*[:=]?\s*)\d{4}-\d{2}-\d{2}",
+                r"\1\2****-**-**",
+                text,
+            )
+        return text
+
     def _write_exceptions_md(
+        self,
         path: Path,
         claim_id: str,
         routing: RoutingDecision,
@@ -641,10 +680,12 @@ class AgentExceptionTriage:
                         "",
                     ]
                 )
-        path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        path.write_text(
+            self._redact_pii("\n".join(lines).rstrip() + "\n"), encoding="utf-8"
+        )
 
-    @staticmethod
     def _write_audit_log(
+        self,
         path: Path,
         claim_id: str,
         run_id: str,
@@ -699,7 +740,9 @@ class AgentExceptionTriage:
         lines.extend(["", "## Evidence Bundle"])
         lines.extend(f"- {item}" for item in evidence_bundle)
 
-        path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        path.write_text(
+            self._redact_pii("\n".join(lines).rstrip() + "\n"), encoding="utf-8"
+        )
 
     # ------------------------------------------------------------------
     # IO helpers
@@ -792,6 +835,59 @@ class AgentExceptionTriage:
             writer = csv.DictWriter(file, fieldnames=columns, lineterminator="\n")
             writer.writeheader()
             writer.writerow(row)
+
+    @staticmethod
+    def _write_settlement_payload_json(
+        path: Path,
+        claim_id: str,
+        run_id: str,
+        routing: RoutingDecision,
+        net_settlement: float,
+        settlement: dict,
+        coverage: dict,
+        fraud: dict,
+        exception_count: int,
+        finalized_at: str,
+        input_hash: str,
+    ) -> None:
+        """
+        CoreLogic-ready settlement posting payload as structured JSON
+        (optional artifact #9). Deterministic key order keeps it byte-for-byte
+        reproducible (REQ-044).
+        """
+        f = AgentExceptionTriage._as_float
+        payload = {
+            "claim_id": claim_id,
+            "run_id": run_id,
+            "routing_decision": routing.value,
+            "settlement": {
+                "net_settlement": net_settlement,
+                "gross_amount": f(settlement.get("gross_amount")),
+                "deductible": f(settlement.get("deductible")),
+                "total_loss_flag": bool(settlement.get("total_loss_flag", False)),
+            },
+            "coverage": {
+                "coverage_active": coverage.get("coverage_active"),
+                "denial_reason": coverage.get("denial_reason"),
+            },
+            "fraud": {
+                "fraud_score": f(fraud.get("fraud_score")),
+                "risk_level": fraud.get("risk_level", ""),
+                "siu_referral": bool(fraud.get("siu_referral", False)),
+            },
+            "matching": {
+                "invoice_match_status": settlement.get(
+                    "invoice_match_status", "not_evaluated"
+                ),
+                "billing_variance_pct": f(settlement.get("billing_variance_pct")),
+            },
+            "exception_count": exception_count,
+            "finalized_at": finalized_at,
+            "input_hash": input_hash,
+        }
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, indent=2, sort_keys=True)
+            file.write("\n")
 
     @staticmethod
     def _write_json(path: Path, data: dict[str, Any]) -> None:

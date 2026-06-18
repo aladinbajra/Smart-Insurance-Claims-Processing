@@ -477,7 +477,7 @@ class AgentFraudDetection:
         threshold = int(
             self.fraud_policy.get(
                 "prior_claims_siu_trigger",
-                3,
+                4,
             )
         )
 

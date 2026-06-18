@@ -37,7 +37,7 @@ fraud:
   medium_risk_threshold:        0.40   # score >= this → adjuster_review
   low_risk_threshold:           0.20   # score below this → no action
   prior_claims_window_months:   18     # lookback window for claim frequency
-  prior_claims_siu_trigger:     3      # claims >= this in window → SIU flag
+  prior_claims_siu_trigger:     4      # claims >= this in window → SIU flag (spec: 4+ in 18mo)
   provider_collusion_min_matches: 2    # same provider in N claims → collusion flag
   staged_accident_vehicle_threshold: 3 # N vehicles in same incident → staged flag
   inflated_repair_multiplier:   1.50   # estimate > 1.5x expected → inflated flag

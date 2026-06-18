@@ -51,6 +51,7 @@ _JSON_ARTIFACTS = {
     "approval_packet.json",
     "metrics.json",
     "evidence_index.json",
+    "settlement_payload.json",
 }
 _TEXT_ARTIFACTS = {"exceptions.md", "audit_log.md"}
 _ARTIFACTS = _JSON_ARTIFACTS | _TEXT_ARTIFACTS
