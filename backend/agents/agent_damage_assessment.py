@@ -49,6 +49,7 @@ class AgentDamageAssessment:
         timestamp: str,
         confidence: float = 1.0,
         requires_human_review: bool = True,
+        open_questions: list[str] | None = None,
     ) -> Finding:
         return Finding(
             finding_id=finding_id,
@@ -57,7 +58,7 @@ class AgentDamageAssessment:
             confidence=confidence,
             evidence_links=evidence_links,
             recommendation=recommendation,
-            open_questions=[],
+            open_questions=open_questions or [],
             requires_human_review=requires_human_review,
             timestamp=timestamp,
         )
@@ -363,6 +364,9 @@ class AgentDamageAssessment:
                         "claim_summary.market_value",
                     ],
                     timestamp=created_at,
+                    open_questions=[
+                        "Has the vehicle market/salvage value been independently confirmed?",
+                    ],
                 )
             )
             audit_entries.append("Total loss detected.")
@@ -500,6 +504,9 @@ class AgentDamageAssessment:
                             "settlement_calc.billing_variance_pct",
                         ],
                         timestamp=created_at,
+                        open_questions=[
+                            "Has the provider justified the billing variance against the PO/GRN?",
+                        ],
                     )
                 )
 

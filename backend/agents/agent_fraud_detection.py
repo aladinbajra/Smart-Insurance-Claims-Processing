@@ -666,7 +666,11 @@ class AgentFraudDetection:
                         if siu_referral
                         else "Continue with adjuster review if needed."
                     ),
-                    open_questions=[],
+                    open_questions=(
+                        ["Confirm fraud indicators with SIU before releasing any payment."]
+                        if siu_referral
+                        else []
+                    ),
                     requires_human_review=siu_referral,
                     timestamp=created_at,
                 )

@@ -43,7 +43,9 @@ class AgentLLMAdvisory:
         model: str | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        # `or` chain (not getenv default) so an empty OPENAI_MODEL="" still
+        # falls back to a valid model instead of an empty string.
+        self.model = model or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 
     def process(self, run_dir: str | Path) -> dict[str, Any]:
         run_path = Path(run_dir)

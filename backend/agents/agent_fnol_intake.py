@@ -85,6 +85,14 @@ class AgentFNOLIntake:
         # Validate the submitted bundle against the group's shared contract.
         manifest = ManifestSchema.model_validate(raw_manifest)
 
+        # Genuine cross-claim duplicate detection (not the manifest answer flag):
+        # scan sibling bundles in the same claims directory for an earlier claim
+        # on the same VIN. Deterministic — it reads the static dataset, sorted by
+        # path, never the dynamic runs/ folder.
+        duplicate_of = self._detect_duplicate(bundle_path, manifest)
+        if duplicate_of:
+            manifest.flags.duplicate_claim = True
+
         # Extract structured data directly from the submitted PDF files.
         # This uses the shared extractor instead of creating a second parser.
         extracted_fields = extract_bundle(
@@ -153,6 +161,7 @@ class AgentFNOLIntake:
             missing_required_files=missing_required_files,
             missing_processable_files=missing_processable_files,
             created_at=created_at,
+            duplicate_of=duplicate_of,
         )
 
         if findings:
@@ -366,6 +375,42 @@ class AgentFNOLIntake:
             ["supporting_evidence"],
         )
 
+    def _detect_duplicate(
+        self,
+        bundle_path: Path,
+        manifest: ManifestSchema,
+    ) -> str | None:
+        """
+        Return the claim_id of an earlier bundle on the same VIN, or None.
+
+        Deterministic: scans sibling ``*/manifest.yaml`` files in the claims
+        directory (sorted by path, content-based), and only matches a claim
+        whose id sorts BEFORE the current one — so the earliest filing is the
+        original and later ones are flagged as duplicates, regardless of run order.
+        """
+        vehicle = manifest.vehicle
+        vin = vehicle.vin if vehicle else None
+        if not vin:
+            return None
+
+        claims_root = bundle_path.parent
+        current_id = manifest.claim_id
+        matches: list[str] = []
+
+        for sibling in sorted(claims_root.glob("*/manifest.yaml")):
+            if sibling.parent == bundle_path:
+                continue
+            try:
+                other = self._load_yaml(sibling)
+            except (OSError, yaml.YAMLError):
+                continue
+            other_vin = (other.get("vehicle") or {}).get("vin")
+            other_id = str(other.get("claim_id", ""))
+            if other_vin and other_vin == vin and other_id and other_id < current_id:
+                matches.append(other_id)
+
+        return sorted(matches)[0] if matches else None
+
     def _build_intake_findings(
         self,
         manifest: ManifestSchema,
@@ -373,6 +418,7 @@ class AgentFNOLIntake:
         missing_required_files: list[str],
         missing_processable_files: list[str],
         created_at: str,
+        duplicate_of: str | None = None,
     ) -> list[Finding]:
         """
         Detect early intake risks.
@@ -389,6 +435,7 @@ class AgentFNOLIntake:
             severity: Severity,
             recommendation: str,
             evidence_links: list[str],
+            open_questions: list[str] | None = None,
         ) -> None:
             findings.append(
                 Finding(
@@ -400,7 +447,7 @@ class AgentFNOLIntake:
                     confidence=1.0,
                     evidence_links=evidence_links,
                     recommendation=recommendation,
-                    open_questions=[],
+                    open_questions=open_questions or [],
                     requires_human_review=(
                         severity in {
                             Severity.critical,
@@ -420,6 +467,9 @@ class AgentFNOLIntake:
                     f"Request the missing required document: {filename}"
                 ),
                 evidence_links=[filename],
+                open_questions=[
+                    f"Has the claimant submitted {filename}?",
+                ],
             )
 
         # Isolate claims with absent files that should be processable.
@@ -597,6 +647,9 @@ class AgentFNOLIntake:
                 evidence_links=[
                     "manifest.yaml:provider.fraud_ring_id"
                 ],
+                open_questions=[
+                    "Are there other open claims tied to this fraud ring?",
+                ],
             )
 
         # Record catastrophe-event signals for special routing.
@@ -618,10 +671,18 @@ class AgentFNOLIntake:
                 code="POSSIBLE_DUPLICATE_CLAIM",
                 severity=Severity.high,
                 recommendation=(
-                    "Isolate the claim and request duplicate-claim review."
+                    f"Possible duplicate of prior claim {duplicate_of} (same VIN); "
+                    "request duplicate-claim review."
+                    if duplicate_of
+                    else "Isolate the claim and request duplicate-claim review."
                 ),
-                evidence_links=[
-                    "manifest.yaml:flags.duplicate_claim"
+                evidence_links=(
+                    [f"cross_claim:vin_match:{duplicate_of}"]
+                    if duplicate_of
+                    else ["manifest.yaml:flags.duplicate_claim"]
+                ),
+                open_questions=[
+                    "Does this claim duplicate an existing one (same VIN/incident date)?",
                 ],
             )
 

@@ -53,6 +53,21 @@ def test_total_variance_detected_even_without_line_variance() -> None:
     assert r.billing_variance_pct == 1.0
 
 
+def test_grn_third_leg_two_way_when_grn_missing() -> None:
+    # No GRN: still a "match" (two-way), but flagged as not a full three-way.
+    r = match_invoice(1550.0, 1550.0, 0.04, "PO-001", None, tolerance=0.25)
+    assert r.match_status == "match"
+    assert r.three_way_match is False
+    assert any("GRN" in reason for reason in r.reasons)
+
+
+def test_grn_third_leg_full_three_way_when_present() -> None:
+    # PO + GRN present and within tolerance -> full three-way match.
+    r = match_invoice(1550.0, 1550.0, 0.04, "PO-001", "GRN-001", tolerance=0.25)
+    assert r.match_status == "match"
+    assert r.three_way_match is True
+
+
 # ---------------------------------------------------------------------------
 # Pipeline tests — matching surfaces in settlement_calc + approval
 # ---------------------------------------------------------------------------

@@ -414,6 +414,27 @@ _DOC_EXTRACTORS = {
 }
 
 
+def _ocr_pdf_text(pdf_path: Path) -> str:
+    """
+    OCR fallback for scanned/image-only PDFs (REQ-050). Extracts embedded page
+    images and runs tesseract on them. Returns "" if OCR is unavailable or the
+    PDF has no images — born-digital PDFs never reach here.
+    """
+    from backend.tools.ocr import ocr_image_bytes
+
+    try:
+        reader = pypdf.PdfReader(str(pdf_path))
+        texts: list[str] = []
+        for page in reader.pages:
+            for image in getattr(page, "images", []) or []:
+                text, _conf = ocr_image_bytes(image.data)
+                if text:
+                    texts.append(text)
+        return " ".join(texts)
+    except Exception:
+        return ""
+
+
 def extract_document(
     pdf_path: Path,
     doc_type: str,
@@ -432,6 +453,23 @@ def extract_document(
     try:
         chunks = _read_chunks(pdf_path)
         raw = _raw(chunks)
+
+        # REQ-050: if the page is born-digital this is non-empty. If it is a
+        # scanned image (no embedded text), fall back to real OCR so the same
+        # field/confidence/bbox logic can still run on the recognized text.
+        if not raw.strip():
+            ocr_raw = _ocr_pdf_text(pdf_path)
+            if ocr_raw.strip():
+                chunks = [
+                    _Chunk(
+                        text=ocr_raw,
+                        bbox=BoundingBox(page=1, x1=0.0, y1=0.0, x2=612.0, y2=792.0),
+                    )
+                ]
+                raw = ocr_raw
+                # OCR'd text is inherently less certain than born-digital.
+                low_ocr = True
+
         return extractor(chunks, raw, pdf_path.name, policy, low_ocr)
     except Exception:
         return []

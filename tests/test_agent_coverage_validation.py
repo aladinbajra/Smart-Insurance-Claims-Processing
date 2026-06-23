@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from backend.agents.agent_coverage_validation import AgentCoverageValidation
 from backend.agents.agent_document_extraction import AgentDocumentExtraction
 from backend.agents.agent_fnol_intake import AgentFNOLIntake

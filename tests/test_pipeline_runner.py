@@ -111,6 +111,27 @@ def test_run_all_batch(tmp_path: Path) -> None:
 # Cache invalidation — changing the bundle forces a recompute (REQ-044)
 # ---------------------------------------------------------------------------
 
+def test_system_metrics_aggregation(tmp_path: Path) -> None:
+    claims_dir = tmp_path / "claims"
+    claims_dir.mkdir()
+    for scenario in ("scenario_01_clean_auto", "scenario_07_fraud_ring"):
+        shutil.copytree(_dataset(scenario), claims_dir / scenario)
+
+    runner = _runner(tmp_path)
+    results = runner.run_all(claims_dir)
+    summary = runner.aggregate_metrics(results)
+
+    assert summary["total_claims"] == 2
+    assert summary["processed"] == 2
+    assert summary["errors"] == 0
+    assert "auto_settle" in summary["routing_distribution"]
+    assert "siu_referral" in summary["routing_distribution"]
+    assert summary["total_exceptions"] >= 1
+    assert 0.0 <= summary["mean_extraction_accuracy"] <= 1.0
+    # Batch roll-up file is written to the runs root.
+    assert (tmp_path / "runs" / "_system_metrics.json").is_file()
+
+
 def test_cache_invalidated_on_input_change(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     shutil.copytree(_dataset("scenario_01_clean_auto"), bundle)
@@ -131,6 +152,22 @@ def test_cache_invalidated_on_input_change(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Missing manifest raises a clear error
 # ---------------------------------------------------------------------------
+
+def test_run_all_batch_resilience(tmp_path: Path) -> None:
+    # A malformed bundle must not abort the batch — it is reported as an error
+    # while the valid bundle still processes (REQ-040).
+    claims_dir = tmp_path / "claims"
+    claims_dir.mkdir()
+    shutil.copytree(_dataset("scenario_01_clean_auto"), claims_dir / "good")
+    bad = claims_dir / "bad"
+    bad.mkdir()
+    (bad / "manifest.yaml").write_text("claim_id: BAD-001\n", encoding="utf-8")
+
+    results = _runner(tmp_path).run_all(claims_dir)
+    by_id = {r.claim_id: r for r in results}
+    assert by_id["CLM-2026-001"].error is None       # good bundle ran
+    assert by_id["BAD-001"].error is not None         # bad bundle reported, not raised
+
 
 def test_missing_manifest_errors(tmp_path: Path) -> None:
     empty = tmp_path / "empty_bundle"

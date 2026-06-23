@@ -332,6 +332,7 @@ class AgentDocumentExtraction:
             recommendation: str,
             evidence_links: list[str],
             confidence: float,
+            open_questions: list[str] | None = None,
         ) -> None:
             findings.append(
                 Finding(
@@ -341,7 +342,7 @@ class AgentDocumentExtraction:
                     confidence=round(confidence, 4),
                     evidence_links=evidence_links,
                     recommendation=recommendation,
-                    open_questions=[],
+                    open_questions=open_questions or [],
                     requires_human_review=(
                         severity in {Severity.critical, Severity.high}
                     ),
@@ -372,6 +373,9 @@ class AgentDocumentExtraction:
                     f"claim_summary.json:overall_confidence={overall_confidence:.4f}"
                 ],
                 confidence=round(1.0 - overall_confidence, 4),
+                open_questions=[
+                    "Can clearer copies of the low-confidence documents be obtained?",
+                ],
             )
         elif low_confidence_fields:
             # Informational only — not enough to halt auto-processing.

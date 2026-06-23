@@ -124,6 +124,7 @@ privacy:
 compliance:
   jurisdiction: "US"
   regulatory_framework: "NAIC"
+  min_data_retention_days: 2190   # NAIC unfair-claims: retain records >= ~6 years
   state_overrides:
     IL:
       late_notice_days: 30

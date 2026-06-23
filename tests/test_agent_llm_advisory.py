@@ -37,3 +37,8 @@ def test_advisory_degrades_without_api_key(tmp_path: Path, monkeypatch) -> None:
     assert result["claim_id"] == "CLM-TEST-001"
     assert (run_dir / "llm_advisory.json").exists()
     assert (run_dir / "llm_advisory.md").exists()
+
+    # The Markdown report renders even when the advisory is unavailable.
+    md = (run_dir / "llm_advisory.md").read_text(encoding="utf-8")
+    assert "CLM-TEST-001" in md
+    assert "unavailable" in md.lower()

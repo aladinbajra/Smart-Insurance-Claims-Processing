@@ -111,6 +111,7 @@ class AgentCoverageValidation:
         severity: Severity,
         recommendation: str,
         evidence_links: list[str],
+        open_questions: list[str] | None = None,
     ) -> Finding:
 
         return Finding(
@@ -120,7 +121,7 @@ class AgentCoverageValidation:
             confidence=1.0,
             evidence_links=evidence_links,
             recommendation=recommendation,
-            open_questions=[],
+            open_questions=open_questions or [],
             requires_human_review=True,
             timestamp=self._created_at,
         )
@@ -351,6 +352,9 @@ class AgentCoverageValidation:
                     evidence_links=[
                         "claim_summary.days_to_report",
                         "policy.late_notice_days",
+                    ],
+                    open_questions=[
+                        "Is there a valid excuse for the late notice under state rules?",
                     ],
                 )
             )

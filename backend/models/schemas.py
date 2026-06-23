@@ -603,6 +603,7 @@ class RunMetrics(BaseModel):
     extraction_accuracy:        float
     low_confidence_field_count: int
     exception_count:            int
+    exception_rate:             float
     routing_decision:           str
     input_hash:                 str
     cache_hit:                  bool

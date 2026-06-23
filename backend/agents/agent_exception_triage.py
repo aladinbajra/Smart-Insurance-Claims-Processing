@@ -33,6 +33,9 @@ _UPSTREAM_ARTIFACTS = (
     "coverage_result.json",
     "settlement_calc.json",
     "fraud_score.json",
+    "liability_result.json",
+    "compliance_result.json",
+    "anomaly_report.json",
 )
 
 
@@ -93,6 +96,10 @@ class AgentExceptionTriage:
         coverage = self._optional_json(run_path / "coverage_result.json")
         settlement = self._optional_json(run_path / "settlement_calc.json")
         fraud = self._optional_json(run_path / "fraud_score.json")
+        # Stretch agents (advisory) — optional; H merges their findings if present.
+        liability = self._optional_json(run_path / "liability_result.json")
+        compliance = self._optional_json(run_path / "compliance_result.json")
+        anomaly = self._optional_json(run_path / "anomaly_report.json")
 
         claim_id: str = context["claim_id"]
         run_id: str = str(context.get("run_id", claim_id))
@@ -101,11 +108,11 @@ class AgentExceptionTriage:
         claim_type: str = str(context.get("claim_type", ""))
         flags: dict = context.get("flags", {}) or {}
         incident: dict = context.get("incident", {}) or {}
-        financials: dict = context.get("financials", {}) or {}
 
         # ----- Merge + dedupe + prioritise findings (REQ-027) -----
         findings = self._merge_findings(
-            context, claim_summary, coverage, settlement, fraud
+            context, claim_summary, coverage, settlement, fraud,
+            liability, compliance, anomaly,
         )
 
         # ----- Rule-based routing decision (REQ-027) -----
@@ -129,6 +136,8 @@ class AgentExceptionTriage:
             settlement=settlement,
             fraud=fraud,
             claim_summary=claim_summary,
+            compliance=compliance,
+            anomaly=anomaly,
         )
 
         evidence_bundle = self._evidence_bundle(findings, run_path)
@@ -154,6 +163,9 @@ class AgentExceptionTriage:
             coverage=coverage,
             settlement=settlement,
             fraud=fraud,
+            liability=liability,
+            compliance=compliance,
+            anomaly=anomaly,
             findings=findings,
             exceptions=exceptions,
             routing=routing,
@@ -214,6 +226,21 @@ class AgentExceptionTriage:
             coverage=coverage,
             fraud=fraud,
             exception_count=len(exceptions),
+            finalized_at=finalized_at,
+            input_hash=input_hash,
+        )
+
+        # Idempotent tracker work-item (REQ-051 stub: ADO/Jira posting). The
+        # ticket id is derived from the claim id, so re-running the same claim
+        # produces the same ticket — no duplicates.
+        self._write_tracker_ticket(
+            run_path / "tracker_ticket.json",
+            claim_id=claim_id,
+            run_id=run_id,
+            routing=routing,
+            net_settlement=net_settlement,
+            exceptions=exceptions,
+            adjuster_notes=adjuster_notes,
             finalized_at=finalized_at,
             input_hash=input_hash,
         )
@@ -419,6 +446,8 @@ class AgentExceptionTriage:
         settlement: dict,
         fraud: dict,
         claim_summary: dict,
+        compliance: dict | None = None,
+        anomaly: dict | None = None,
     ) -> list[ExceptionEntry]:
         exceptions: list[ExceptionEntry] = []
 
@@ -537,11 +566,10 @@ class AgentExceptionTriage:
                 assigned_to="adjuster",
             )
 
-        # NOTE: repair/medical variance exceptions are intentionally NOT raised
-        # here. Agent D computes those as repair/gross (bounded [0,1]) which
-        # exceeds the 0.25 tolerance on almost every claim, so that signal is
-        # unreliable. The reliable billing variance (above) comes from the
-        # invoice/PO/GRN matcher instead.
+        # NOTE: Agent D's repair/medical variance findings are not turned into a
+        # separate exception here — the authoritative billing-variance exception
+        # (above) already comes from the invoice/PO/GRN matcher, so surfacing
+        # both would double-flag the same underlying issue.
 
         # Senior review for large gross amounts.
         gross = self._as_float(settlement.get("gross_amount"))
@@ -557,6 +585,47 @@ class AgentExceptionTriage:
                 evidence_links=["settlement_calc.json:gross_amount"],
                 assigned_to="senior_adjuster",
             )
+
+        # Regulatory-compliance failure (Agent G / REQ-048).
+        if compliance and compliance.get("compliant") is False:
+            failed = [
+                c.get("check")
+                for c in (compliance.get("checks") or [])
+                if c.get("passed") is False
+            ]
+            add(
+                category="compliance",
+                severity=Severity.high,
+                description=(
+                    f"Failed {compliance.get('framework', 'NAIC')} compliance "
+                    f"checks: {', '.join(str(f) for f in failed) or 'see report'}."
+                ),
+                recommended_action="Resolve the compliance gap before settlement.",
+                evidence_links=["compliance_result.json:compliant"],
+                assigned_to="compliance",
+            )
+
+        # Statistical anomaly worth a look (Agent / REQ-052). Billing-variance and
+        # CAT-surge anomalies are excluded — they are already covered above.
+        if anomaly:
+            flagged = {
+                a.get("code")
+                for a in (anomaly.get("anomalies") or [])
+                if a.get("code") in ("HIGH_VALUE_OUTLIER", "REPAIR_EXCEEDS_VALUE")
+            }
+            if flagged:
+                add(
+                    category="anomaly_review",
+                    severity=Severity.medium,
+                    description=(
+                        "Statistical anomaly detected: "
+                        f"{', '.join(sorted(str(c) for c in flagged))} "
+                        f"(score {anomaly.get('anomaly_score')})."
+                    ),
+                    recommended_action="Investigate the outlier before settlement.",
+                    evidence_links=["anomaly_report.json:anomalies"],
+                    assigned_to="adjuster",
+                )
 
         return exceptions
 
@@ -587,6 +656,9 @@ class AgentExceptionTriage:
         pipeline_duration_seconds: float,
         agents_executed: list[str] | None,
         cache_hit: bool,
+        liability: dict | None = None,
+        compliance: dict | None = None,
+        anomaly: dict | None = None,
     ) -> RunMetrics:
         if agents_executed is None:
             agents_executed = ["agent_fnol_intake"]
@@ -598,6 +670,12 @@ class AgentExceptionTriage:
                 agents_executed.append("agent_damage_assessment")
             if fraud:
                 agents_executed.append("agent_fraud_detection")
+            if liability:
+                agents_executed.append("agent_liability")
+            if compliance:
+                agents_executed.append("agent_compliance")
+            if anomaly:
+                agents_executed.append("agent_anomaly")
             agents_executed.append("agent_exception_triage")
 
         by_severity: dict[str, int] = {}
@@ -620,6 +698,10 @@ class AgentExceptionTriage:
                 claim_summary.get("low_confidence_fields", []) or []
             ),
             exception_count=len(exceptions),
+            # Share of ACTIONABLE findings (>= medium severity) that became
+            # exceptions (REQ-029). Info/low findings are excluded so advisory
+            # notes do not dilute the rate. Capped at 1.0.
+            exception_rate=self._exception_rate(findings, len(exceptions)),
             routing_decision=routing.value,
             input_hash=str(context.get("input_hash", "")),
             cache_hit=bool(cache_hit),
@@ -747,6 +829,18 @@ class AgentExceptionTriage:
     # ------------------------------------------------------------------
     # IO helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _exception_rate(findings: list[Finding], exception_count: int) -> float:
+        """Exceptions as a share of actionable (>= medium) findings, capped at 1.0."""
+        actionable = sum(
+            1
+            for f in findings
+            if f.severity in (Severity.critical, Severity.high, Severity.medium)
+        )
+        if actionable <= 0:
+            return 0.0
+        return round(min(exception_count / actionable, 1.0), 4)
 
     @staticmethod
     def _as_float(value: Any) -> float:
@@ -887,6 +981,75 @@ class AgentExceptionTriage:
         }
         with path.open("w", encoding="utf-8") as file:
             json.dump(payload, file, indent=2, sort_keys=True)
+            file.write("\n")
+
+    # Routing → tracker assignee / priority maps (deterministic).
+    _TRACKER_ASSIGNEE = {
+        "siu_referral": "SIU",
+        "coverage_denial": "adjuster",
+        "senior_review": "senior_adjuster",
+        "total_loss_routing": "adjuster",
+        "late_notice_review": "adjuster",
+        "manual_review_route": "adjuster",
+        "adjuster_review": "adjuster",
+        "cat_surge_processing": "auto",
+        "auto_settle": "auto",
+    }
+    _TRACKER_PRIORITY = {
+        "siu_referral": "critical",
+        "coverage_denial": "high",
+        "senior_review": "high",
+        "total_loss_routing": "high",
+        "late_notice_review": "medium",
+        "manual_review_route": "medium",
+        "adjuster_review": "medium",
+        "cat_surge_processing": "low",
+        "auto_settle": "low",
+    }
+
+    @classmethod
+    def _write_tracker_ticket(
+        cls,
+        path: Path,
+        claim_id: str,
+        run_id: str,
+        routing: RoutingDecision,
+        net_settlement: float,
+        exceptions: list[ExceptionEntry],
+        adjuster_notes: str,
+        finalized_at: str,
+        input_hash: str,
+    ) -> None:
+        """
+        REQ-051 stub — the work item we would POST to ADO/Jira. Deterministic
+        and idempotent: the ticket id is derived from the claim id, so the same
+        claim always maps to the same ticket (no duplicates on re-run).
+        Auto-settle / CAT surge are auto-closed; everything else is open work.
+        """
+        routing_value = routing.value
+        auto = routing_value in ("auto_settle", "cat_surge_processing")
+        ticket = {
+            "ticket_id": f"SICPS-{claim_id}",
+            "tracker": "ADO/Jira (stub)",
+            "claim_id": claim_id,
+            "run_id": run_id,
+            "title": f"[{routing_value}] Claim {claim_id}",
+            "status": "closed" if auto else "open",
+            "assigned_to": cls._TRACKER_ASSIGNEE.get(routing_value, "adjuster"),
+            "priority": cls._TRACKER_PRIORITY.get(routing_value, "medium"),
+            "routing_decision": routing_value,
+            "net_settlement": net_settlement,
+            "exception_count": len(exceptions),
+            "exceptions": [
+                {"id": e.exception_id, "category": e.category, "action": e.recommended_action}
+                for e in exceptions
+            ],
+            "summary": adjuster_notes,
+            "created_at": finalized_at,
+            "input_hash": input_hash,
+        }
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(ticket, file, indent=2, sort_keys=True)
             file.write("\n")
 
     @staticmethod

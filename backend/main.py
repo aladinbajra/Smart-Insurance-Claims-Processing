@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +54,12 @@ _JSON_ARTIFACTS = {
     "metrics.json",
     "evidence_index.json",
     "settlement_payload.json",
+    "tracker_ticket.json",
+    "liability_result.json",
+    "compliance_result.json",
+    "anomaly_report.json",
+    "llm_advisory.json",
+    "tracker_post_result.json",
 }
 _TEXT_ARTIFACTS = {"exceptions.md", "audit_log.md"}
 _ARTIFACTS = _JSON_ARTIFACTS | _TEXT_ARTIFACTS
@@ -104,6 +112,15 @@ class FnolRequest(BaseModel):
     force: bool = False
 
 
+class IngestRequest(BaseModel):
+    # A claim manifest posted from a portal / API client (REQ-049 ingestion).
+    manifest: dict[str, Any]
+
+
+class TrackerPostRequest(BaseModel):
+    claim_id: str
+
+
 # ----------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------
@@ -113,9 +130,9 @@ def create_app(
     runs_dir: str | Path | None = None,
     claims_dir: str | Path | None = None,
 ) -> FastAPI:
-    config_path = Path(config_path or os.getenv("POLICY_PACK_PATH", _DEFAULT_CONFIG))
-    runs_dir = Path(runs_dir or os.getenv("RUNS_DIR", _DEFAULT_RUNS))
-    claims_dir = Path(claims_dir or os.getenv("SICPS_CLAIMS_DIR", _DEFAULT_CLAIMS))
+    config_path = Path(config_path or os.getenv("POLICY_PACK_PATH") or _DEFAULT_CONFIG)
+    runs_dir = Path(runs_dir or os.getenv("RUNS_DIR") or _DEFAULT_RUNS)
+    claims_dir = Path(claims_dir or os.getenv("SICPS_CLAIMS_DIR") or _DEFAULT_CLAIMS)
 
     runner = PipelineRunner(config_path=config_path, runs_dir=runs_dir)
 
@@ -169,6 +186,8 @@ def create_app(
                 "/claims",
                 "/run",
                 "/run-fnol",
+                "/ingest",
+                "/tracker/post",
                 "/runs",
                 "/runs/{claim_id}",
                 "/runs/{claim_id}/artifacts/{name}",
@@ -237,6 +256,52 @@ def create_app(
             duration_seconds=result.duration_seconds,
             input_hash=result.input_hash,
         )
+
+    @app.post("/ingest", response_model=RunSummary)
+    def ingest_claim(request: IngestRequest) -> RunSummary:
+        """
+        Claims-portal / API ingestion (REQ-049). Accepts a claim manifest from a
+        client, writes it to a temporary bundle, and runs the pipeline. Document
+        PDFs are optional — extraction uses the manifest synthetic fallback.
+        """
+        manifest = request.manifest
+        if not isinstance(manifest, dict) or not manifest.get("claim_id"):
+            raise HTTPException(status_code=400, detail="manifest must include claim_id")
+        bundle_dir = Path(tempfile.mkdtemp(prefix="sicps_ingest_"))
+        try:
+            with (bundle_dir / "manifest.yaml").open("w", encoding="utf-8") as file:
+                yaml.safe_dump(manifest, file, sort_keys=True)
+            result = runner.run(bundle_dir, force=True)
+        except Exception as exc:  # noqa: BLE001 — surface as HTTP error
+            raise HTTPException(
+                status_code=500, detail=f"ingestion failed: {exc}"
+            ) from exc
+        finally:
+            shutil.rmtree(bundle_dir, ignore_errors=True)
+        return RunSummary(
+            claim_id=result.claim_id,
+            routing_decision=result.routing_decision,
+            net_settlement=result.net_settlement,
+            cache_hit=result.cache_hit,
+            duration_seconds=result.duration_seconds,
+            input_hash=result.input_hash,
+        )
+
+    @app.post("/tracker/post")
+    def post_tracker(request: TrackerPostRequest) -> dict[str, Any]:
+        """
+        REQ-051 — post a run's work item to the configured tracker (ADO/Jira).
+        Side effect outside the deterministic pipeline; dry-run when no tracker
+        is configured.
+        """
+        from backend.tools.tracker_poster import post_ticket_file
+
+        run_dir = _run_dir(request.claim_id)
+        if not (run_dir / "tracker_ticket.json").is_file():
+            raise HTTPException(
+                status_code=404, detail=f"no ticket for {request.claim_id}"
+            )
+        return post_ticket_file(run_dir)
 
     @app.get("/runs", response_model=list[str])
     def list_runs() -> list[str]:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
@@ -90,6 +91,40 @@ def test_run_fnol_single_document(client: TestClient) -> None:
 
 def test_run_fnol_missing_404(client: TestClient) -> None:
     resp = client.post("/run-fnol", json={"fnol": "scenario_01_clean_auto/nope.pdf"})
+    assert resp.status_code == 404
+
+
+def test_ingest_claim_from_manifest(client: TestClient) -> None:
+    manifest_path = _dataset_root() / "scenario_01_clean_auto" / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    resp = client.post("/ingest", json={"manifest": manifest})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["claim_id"] == "CLM-2026-001"
+    # Manifest-only ingest (no document PDFs attached) → required docs are
+    # missing → the pipeline correctly routes to manual review rather than
+    # auto-settling on data alone.
+    assert body["routing_decision"] == "manual_review_route"
+
+
+def test_ingest_requires_claim_id(client: TestClient) -> None:
+    resp = client.post("/ingest", json={"manifest": {"scenario": "x"}})
+    assert resp.status_code == 400
+
+
+def test_tracker_post_dry_run(client: TestClient, monkeypatch) -> None:
+    monkeypatch.delenv("TRACKER_TYPE", raising=False)
+    client.post("/run", json={"bundle": "scenario_07_fraud_ring"})
+    resp = client.post("/tracker/post", json={"claim_id": "CLM-2026-007"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ticket_id"] == "SICPS-CLM-2026-007"
+    assert body["posted"] is False  # no tracker configured -> dry-run
+
+
+def test_tracker_post_missing_ticket_404(client: TestClient) -> None:
+    resp = client.post("/tracker/post", json={"claim_id": "CLM-9999-999"})
     assert resp.status_code == 404
 
 

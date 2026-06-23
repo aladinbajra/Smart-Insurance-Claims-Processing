@@ -19,6 +19,7 @@ class MatchResult:
     billing_variance_pct: float  # effective variance (total vs PO, or line-level)
     po_present: bool
     grn_present: bool
+    three_way_match: bool = False  # invoice ↔ PO ↔ GRN all present and in tolerance
     reasons: list[str] = field(default_factory=list)
 
 
@@ -64,10 +65,20 @@ def match_invoice(
         matched = False
         reasons.append("missing purchase-order reference")
 
+    # Third leg of the three-way match (REQ-043). A missing GRN does NOT by
+    # itself fail the match (many real invoices clear on a two-way invoice↔PO
+    # match), but it is reported so the audit trail shows the match was only
+    # two-way and the goods receipt still needs confirmation.
+    if not grn_present:
+        reasons.append("missing goods-receipt-note (GRN) reference — two-way match only")
+
+    three_way_match = matched and po_present and grn_present
+
     return MatchResult(
         match_status="match" if matched else "mismatch",
         billing_variance_pct=billing_variance,
         po_present=po_present,
         grn_present=grn_present,
+        three_way_match=three_way_match,
         reasons=reasons,
     )

@@ -214,3 +214,77 @@ def test_findings_merged_from_all_agents(tmp_path: Path) -> None:
 def test_requires_context_packet(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="context_packet"):
         AgentExceptionTriage(config_path=_config()).process(tmp_path / "runs" / "NOPE")
+
+
+# ---------------------------------------------------------------------------
+# REQ-051 — tracker work-item (ADO/Jira stub), idempotent per claim
+# ---------------------------------------------------------------------------
+
+def test_tracker_ticket_for_siu(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    run_dir = _run_full_pipeline(runs_dir, "scenario_07_fraud_ring", "CLM-2026-007")
+    ticket = _load(run_dir / "tracker_ticket.json")
+
+    assert ticket["ticket_id"] == "SICPS-CLM-2026-007"  # stable id (idempotent)
+    assert ticket["status"] == "open"
+    assert ticket["assigned_to"] == "SIU"
+    assert ticket["priority"] == "critical"
+    assert ticket["routing_decision"] == "siu_referral"
+
+
+def test_tracker_ticket_auto_settle_is_closed(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    run_dir = _run_full_pipeline(runs_dir, "scenario_01_clean_auto", "CLM-2026-001")
+    ticket = _load(run_dir / "tracker_ticket.json")
+
+    assert ticket["status"] == "closed"
+    assert ticket["assigned_to"] == "auto"
+
+
+# ---------------------------------------------------------------------------
+# REQ-029 — metrics include an exception rate
+# ---------------------------------------------------------------------------
+
+def test_metrics_exception_rate(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    run_dir = _run_full_pipeline(runs_dir, "scenario_01_clean_auto", "CLM-2026-001")
+    metrics = _load(run_dir / "metrics.json")
+
+    assert "exception_rate" in metrics
+    assert metrics["exception_rate"] == 0.0  # clean claim -> no exceptions
+
+
+# ---------------------------------------------------------------------------
+# Stretch agents now CONTRIBUTE: non-compliance and genuine anomalies become
+# exceptions in the approval packet (REQ-048 / REQ-052).
+# ---------------------------------------------------------------------------
+
+def _write(run_dir: Path, name: str, data: dict) -> None:
+    with (run_dir / name).open("w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+
+
+def test_compliance_and_anomaly_raise_exceptions(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "CLM-SYNTH-001"
+    run_dir.mkdir(parents=True)
+    _write(run_dir, "context_packet.json", {
+        "claim_id": "CLM-SYNTH-001", "run_id": "CLM-SYNTH-001",
+        "created_at": "1970-01-01T00:00:00Z", "claim_type": "auto",
+        "flags": {}, "incident": {}, "input_hash": "x",
+    })
+    _write(run_dir, "compliance_result.json", {
+        "compliant": False, "framework": "NAIC",
+        "checks": [{"check": "pii_redaction_enabled", "passed": False}],
+        "findings": [],
+    })
+    _write(run_dir, "anomaly_report.json", {
+        "anomaly_score": 0.25,
+        "anomalies": [{"code": "HIGH_VALUE_OUTLIER", "detail": "gross too high"}],
+        "findings": [],
+    })
+
+    AgentExceptionTriage(config_path=_config()).process(run_dir)
+    approval = _load(run_dir / "approval_packet.json")
+    categories = [e["category"] for e in approval["exceptions"]]
+    assert "compliance" in categories
+    assert "anomaly_review" in categories
