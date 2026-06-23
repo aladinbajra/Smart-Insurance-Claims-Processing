@@ -1,0 +1,13 @@
+# Pin a single light theme so the console renders identically for every viewer,
+# regardless of their browser / OS dark-mode preference. This guarantees text
+# contrast (no inherited light-on-light or dark-on-dark text).
+[theme]
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#f8fafc"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0f172a"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
